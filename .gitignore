@@ -2,3 +2,4 @@ __pycache__
 .mypy_cache
 data/test_rasters
 data/train_rasters
+venv/

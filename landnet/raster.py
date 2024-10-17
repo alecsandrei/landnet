@@ -1,15 +1,27 @@
-"""Used to generate terrain analysis rasters using SAGA GIS."""
-
 from __future__ import annotations
 
 import collections.abc as c
-from pathlib import Path
+import typing as t
 
-from PySAGA_cmd.saga import (
-    SAGA,
-    Library,
-    ToolOutput,
-)
+if t.TYPE_CHECKING:
+    from pathlib import Path
+
+    from PySAGA_cmd.saga import SAGA, Library, ToolOutput
+
+
+def split_raster(
+    saga: SAGA, raster: Path, tile_size: tuple[int, int], out_dir: Path
+):
+    tiling = saga / 'grid_tools' / 'Tiling'
+    tiling.execute(
+        grid=raster,
+        tiles=out_dir,
+        tiles_save=1,
+        tiles_path=out_dir,
+        nx=tile_size[0],
+        ny=tile_size[1],
+        verbose=True,
+    )
 
 
 class TerrainAnalysis:
