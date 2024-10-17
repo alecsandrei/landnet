@@ -3,3 +3,4 @@ __pycache__
 data/test_rasters
 data/train_rasters
 venv/
+landnet.egg-info/

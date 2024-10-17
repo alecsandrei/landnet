@@ -9,5 +9,10 @@ authors = [
 ]
 dependencies = ['PySAGA-cmd']
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["landnet"]
+exclude = []
+
 [tool.mypy]
 ignore_missing_imports = true
