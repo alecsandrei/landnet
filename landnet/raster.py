@@ -11,9 +11,9 @@ if t.TYPE_CHECKING:
 
 def split_raster(
     saga: SAGA, raster: Path, tile_size: tuple[int, int], out_dir: Path
-):
+) -> ToolOutput:
     tiling = saga / 'grid_tools' / 'Tiling'
-    tiling.execute(
+    return tiling.execute(
         grid=raster,
         tiles=out_dir,
         tiles_save=1,
@@ -30,7 +30,7 @@ class TerrainAnalysis:
         self.saga = saga
         self.out_dir = out_dir
         self.out_dir.mkdir(exist_ok=True)
-        self.tools: list[c.Callable[[], ToolOutput]] = [
+        self.tools: list[c.Callable[..., ToolOutput]] = [
             self.index_of_convergence,
             self.terrain_surface_convexity,
             self.topographic_openness,
