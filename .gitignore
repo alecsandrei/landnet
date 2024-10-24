@@ -2,5 +2,8 @@ __pycache__
 .mypy_cache
 data/test_rasters
 data/train_rasters
+data/models
+*.csv
 venv/
 landnet.egg-info/
+*.xml
