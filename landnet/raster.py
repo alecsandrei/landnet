@@ -2,15 +2,24 @@ from __future__ import annotations
 
 import collections.abc as c
 import typing as t
+from dataclasses import dataclass
+from enum import Enum, auto
+from pathlib import Path
 
 if t.TYPE_CHECKING:
-    from pathlib import Path
+    from os import PathLike
 
     from PySAGA_cmd.saga import SAGA, Library, ToolOutput
 
 
+LandslideTile = int
+LandslidePercentage = float
+TilePaths = dict[int, Path]
+ClassFolder = Path
+
+
 def split_raster(
-    saga: SAGA, raster: Path, tile_size: tuple[int, int], out_dir: Path
+    saga: SAGA, raster: PathLike, tile_size: tuple[int, int], out_dir: PathLike
 ) -> ToolOutput:
     tiling = saga / 'grid_tools' / 'Tiling'
     return tiling.execute(
@@ -24,11 +33,62 @@ def split_raster(
     )
 
 
+class LandslideClass(Enum):
+    NON_LANDSLIDE = auto()
+    LANDSLIDE = auto()
+
+
+@dataclass
+class LandslideImageFolder:
+    path: Path
+
+    def get_tile_paths(self) -> TilePaths:
+        tiles = {}
+        for file in self.path.rglob('*[0-9]*'):
+            tile = int(''.join(filter(str.isdigit, file.name)))
+            tiles[tile] = file
+        return tiles
+
+    def reclassify(
+        self,
+        tiles: c.Mapping[LandslideTile, LandslidePercentage],
+        threshold_percentage: float = 0.05,
+    ) -> None:
+        tile_paths = self.get_tile_paths()
+        for tile, percentage in tiles.items():
+            path = tile_paths[tile]
+            if percentage >= threshold_percentage:
+                landslide_class = str(LandslideClass.LANDSLIDE.value)
+            else:
+                landslide_class = str(LandslideClass.NON_LANDSLIDE.value)
+
+            if path.parent.name != landslide_class:
+                new_folder = path.parents[1] / landslide_class
+                new_folder.mkdir(exist_ok=True)
+                print(
+                    '{} renamed to {}, {}, {}'.format(
+                        path,
+                        new_folder / path.name,
+                        percentage,
+                        landslide_class,
+                    )
+                )
+                path.rename(new_folder / path.name)
+        self.remove_empty_folders(self.path)
+
+    @staticmethod
+    def remove_empty_folders(path: Path):
+        for dir_ in path.iterdir():
+            if dir_.is_dir():
+                if not len(list(dir_.iterdir())):
+                    dir_.rmdir()
+
+
 class TerrainAnalysis:
-    def __init__(self, dem: Path, saga: SAGA, out_dir: Path):
+    def __init__(self, dem: PathLike, saga: SAGA, out_dir: PathLike):
         self.dem = dem
         self.saga = saga
-        self.out_dir = out_dir
+        self.out_dir = Path(out_dir)
         self.out_dir.mkdir(exist_ok=True)
         self.tools: list[c.Callable[..., ToolOutput]] = [
             self.index_of_convergence,
