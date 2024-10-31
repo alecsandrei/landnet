@@ -69,43 +69,14 @@ def evaluate_model(
     )
 
 
-def train_model(
+def one_epoch(
     model: nn.Module,
-    train_loader: DataLoader,
-    validation_loader: DataLoader,
-    test_loader: DataLoader,
-    num_epochs: int,
-    learning_rate: float,
-) -> tuple[pd.DataFrame, Metrics]:
-    def one_epoch(
-        model: nn.Module,
-        train_batch: DataLoader,
-        validation_batch: DataLoader,
-        loss_fn: nn.Module,
-        optimizer: Optimizer,
-    ) -> EpochMetrics:
-        model.train()
-        y_true: list[float] = []
-        y_pred: list[float] = []
-        loss_values = []
-        for batch in train_batch:
-            result = one_batch(model, batch, loss_fn, optimizer)
-            y_true.extend(result.true)
-            y_pred.extend(result.pred)
-            loss_values.append(result.loss)
-        validation = evaluate_model(model, validation_batch, loss_fn)
-        training = Metrics(
-            accuracy_score(y_true, y_pred),
-            f1_score(y_true, y_pred),
-            mean(loss_values),
-        )
-        return EpochMetrics(
-            training,
-            validation,
-        )
-
+    train_batch: DataLoader,
+    validation_batch: DataLoader,
+    loss_fn: nn.Module,
+    optimizer: Optimizer,
+) -> EpochMetrics:
     def one_batch(
-        model: nn.Module,
         train_batch: DataLoader,
         loss_fn: nn.Module,
         optimizer: Optimizer,
@@ -128,6 +99,35 @@ def train_model(
             t.cast(float, loss_value),
         )
 
+    model.train()
+    y_true: list[float] = []
+    y_pred: list[float] = []
+    loss_values = []
+    for batch in train_batch:
+        result = one_batch(batch, loss_fn, optimizer)
+        y_true.extend(result.true)
+        y_pred.extend(result.pred)
+        loss_values.append(result.loss)
+    validation = evaluate_model(model, validation_batch, loss_fn)
+    training = Metrics(
+        accuracy_score(y_true, y_pred),
+        f1_score(y_true, y_pred),
+        mean(loss_values),
+    )
+    return EpochMetrics(
+        training,
+        validation,
+    )
+
+
+def train_model(
+    model: nn.Module,
+    train_loader: DataLoader,
+    validation_loader: DataLoader,
+    num_epochs: int,
+    learning_rate: float,
+    test_loader: DataLoader | None = None,
+) -> pd.DataFrame:
     loss_fn = nn.BCELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     epoch_metrics = pd.DataFrame(
@@ -151,7 +151,6 @@ def train_model(
             f'|| Metrics for training: {result.train._formatted()}',
             f'|| Metrics for validation: {result.validation._formatted()}',
         )
-    testing_result = evaluate_model(model, test_loader, loss_fn)
-
-    print('Test result: ', testing_result)
-    return (epoch_metrics, testing_result)
+    if test_loader is not None:
+        print('Test result: ', evaluate_model(model, test_loader, loss_fn))
+    return epoch_metrics
