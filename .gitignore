@@ -7,3 +7,4 @@ data/models
 venv/
 landnet.egg-info/
 *.xml
+.vscode
