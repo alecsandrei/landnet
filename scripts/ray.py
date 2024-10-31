@@ -20,8 +20,8 @@ from torchvision.datasets import ImageFolder
 from torchvision.models import AlexNet_Weights, alexnet
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToTensor
 
-from landnet.cnn import device, evaluate_model, one_epoch
 from landnet.raster import LandslideImageFolder
+from landnet.training import device, evaluate_model, one_epoch
 
 if t.TYPE_CHECKING:
     from torchvision.models import AlexNet

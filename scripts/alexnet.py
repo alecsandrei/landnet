@@ -14,7 +14,7 @@ from torchvision.datasets import ImageFolder
 from torchvision.models import AlexNet_Weights, alexnet
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToTensor
 
-from landnet.cnn import device, train_model
+from landnet.training import device, train_model
 
 if t.TYPE_CHECKING:
     from torchvision.models import AlexNet
