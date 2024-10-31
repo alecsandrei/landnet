@@ -29,15 +29,15 @@ class EpochMetrics(t.NamedTuple):
 
 
 class BatchResult(t.NamedTuple):
-    true: c.Sequence[float]
-    pred: c.Sequence[float]
-    loss: float
+    true: c.Sequence[int]
+    pred: c.Sequence[int]
+    metrics: Metrics
 
 
 class Metrics(t.NamedTuple):
-    accuracy: t.SupportsFloat
-    f1_score: t.SupportsFloat
-    loss: t.SupportsFloat
+    accuracy: float
+    f1_score: float
+    loss: float
 
     def _formatted(self) -> str:
         return ', '.join(
@@ -63,8 +63,8 @@ def evaluate_model(
             loss = loss_fn(pred, y.float())
             loss_values.append(loss.item())
     return Metrics(
-        accuracy_score(y_true, y_pred),
-        f1_score(y_true, y_pred),
+        float(accuracy_score(y_true, y_pred)),
+        float(f1_score(y_true, y_pred)),
         mean(loss_values),
     )
 
@@ -93,10 +93,15 @@ def one_epoch(
         loss_value = loss.item()
         loss.backward()
         optimizer.step()
+        metrics = Metrics(
+            float(accuracy_score(y, labels)),
+            float(f1_score(y, labels)),
+            loss_value,
+        )
         return BatchResult(
             y.tolist(),
             labels.tolist(),
-            t.cast(float, loss_value),
+            metrics,
         )
 
     model.train()
@@ -107,11 +112,11 @@ def one_epoch(
         result = one_batch(batch, loss_fn, optimizer)
         y_true.extend(result.true)
         y_pred.extend(result.pred)
-        loss_values.append(result.loss)
+        loss_values.append(float(result.metrics.loss))
     validation = evaluate_model(model, validation_batch, loss_fn)
     training = Metrics(
-        accuracy_score(y_true, y_pred),
-        f1_score(y_true, y_pred),
+        float(accuracy_score(y_true, y_pred)),
+        float(f1_score(y_true, y_pred)),
         mean(loss_values),
     )
     return EpochMetrics(

@@ -231,6 +231,7 @@ if __name__ == '__main__':
             (models_folder / train_folder.name).with_suffix('.csv')
         )
         best_result = results.get_best_result('loss', 'min')
+        assert best_result.config
         assert best_result.metrics
 
         print('Best trial config: {}'.format(best_result.config))
@@ -242,6 +243,7 @@ if __name__ == '__main__':
         best_checkpoint = best_result.get_best_checkpoint(
             metric='loss', mode='min'
         )
+        assert best_checkpoint is not None
         with best_checkpoint.as_directory() as checkpoint_dir:
             data_path = Path(checkpoint_dir) / 'checkpoint.pt'
             rename_path = (models_folder / train_folder.name).with_suffix('.pt')
