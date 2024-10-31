@@ -34,6 +34,14 @@ GPUS = 1
 CPUS = 4
 NUM_SAMPLES = 20
 
+LANDSLIDE_THRESHOLD = 0.05
+DATA_FOLDER = Path(__file__).parent.parent / 'data'
+TRAIN_FOLDER = DATA_FOLDER / 'train_rasters'
+TRAIN_LANDSLIDE_PERCENTAGE = DATA_FOLDER / '66_65_ldl.csv'
+TEST_LANDSLIDE_PERCENTAGE = DATA_FOLDER / '66_64_ldl.csv'
+TEST_FOLDER = DATA_FOLDER / 'test_rasters'
+MODELS_FOLDER = DATA_FOLDER / 'models'
+
 
 def pil_loader(path: str, size: tuple[int, int]) -> Image.Image:
     with open(path, 'rb') as f:
@@ -194,27 +202,24 @@ def reclassify_rasters(
     LandslideImageFolder(image_folder).reclassify(tiles, landslide_threshold)
 
 
-if __name__ == '__main__':
-    threshold = 0.05
-    data_folder = Path(__file__).parent.parent / 'data'
-    train_folder = data_folder / 'train_rasters'
-    train_landslide_percentage = data_folder / '66_65_ldl.csv'
-    test_landslide_percentage = data_folder / '66_64_ldl.csv'
-    test_folder = data_folder / 'test_rasters'
-    models_folder = data_folder / 'models'
-    final_models_folder = models_folder / 'final'
-    models_folder.mkdir(exist_ok=True)
+def train_models():
+    MODELS_FOLDER.mkdir(exist_ok=True)
     folders = zip(
-        [path for path in train_folder.iterdir() if path.is_dir()],
-        [path for path in test_folder.iterdir() if path.is_dir()],
+        [path for path in TRAIN_FOLDER.iterdir() if path.is_dir()],
+        [path for path in TEST_FOLDER.iterdir() if path.is_dir()],
     )
 
-    to_skip = ['mpi', 'txt']
     for train_folder, test_folder in folders:
-        if (models_folder / f'{train_folder.name}.pt').exists():
+        if (
+            MODELS_FOLDER / f'{train_folder.name}.pt'
+        ).exists() or train_folder.name in ['txt', 'mpi']:
             continue
-        reclassify_rasters(train_folder, threshold, train_landslide_percentage)
-        reclassify_rasters(test_folder, threshold, test_landslide_percentage)
+        reclassify_rasters(
+            train_folder, LANDSLIDE_THRESHOLD, TRAIN_LANDSLIDE_PERCENTAGE
+        )
+        reclassify_rasters(
+            test_folder, LANDSLIDE_THRESHOLD, TEST_LANDSLIDE_PERCENTAGE
+        )
         assert train_folder.name == test_folder.name, (
             train_folder.name,
             test_folder.name,
@@ -224,11 +229,11 @@ if __name__ == '__main__':
             train_folder=train_folder,
         )
         tuner = get_tuner(
-            train_func, name=train_folder.name, storage_path=models_folder
+            train_func, name=train_folder.name, storage_path=MODELS_FOLDER
         )
         results = tuner.fit()
         results.get_dataframe().to_csv(
-            (models_folder / train_folder.name).with_suffix('.csv')
+            (MODELS_FOLDER / train_folder.name).with_suffix('.csv')
         )
         best_result = results.get_best_result('loss', 'min')
         assert best_result.config
@@ -246,18 +251,38 @@ if __name__ == '__main__':
         assert best_checkpoint is not None
         with best_checkpoint.as_directory() as checkpoint_dir:
             data_path = Path(checkpoint_dir) / 'checkpoint.pt'
-            rename_path = (models_folder / train_folder.name).with_suffix('.pt')
+            rename_path = (MODELS_FOLDER / train_folder.name).with_suffix('.pt')
             rename_path.unlink(missing_ok=True)
             data_path.rename(rename_path)
             shutil.rmtree(data_path.parents[2])
-        with open(rename_path, 'rb') as fp:
+
+
+def evaluate_models():
+    for model_path in MODELS_FOLDER.glob('*.pt'):
+        df = pd.read_csv(
+            (model_path.parent / model_path.stem).with_suffix('.csv')
+        )
+        if not df.shape[0] == NUM_SAMPLES:
+            print(model_path, 'failed', df.shape[0])
+            continue
+        batch_size = int(df.sort_values(by='loss').iloc[0]['config/batch_size'])
+        with open(model_path, 'rb') as fp:
             best_checkpoint_data = pickle.load(fp)
 
         model = get_model()
         model.load_state_dict(best_checkpoint_data['net_state_dict'])
         test_acc = evaluate_model(
             model,
-            get_test_loader(test_folder, best_result.config['batch_size']),
+            get_test_loader(TEST_FOLDER / model_path.stem, batch_size),
             nn.BCELoss(),
         )
-        print('Best trial test set accuracy: {}'.format(test_acc._formatted()))
+        print(
+            'Best test set accuracy for model {}: {}'.format(
+                model_path.stem, test_acc._formatted()
+            )
+        )
+
+
+if __name__ == '__main__':
+    train_models()
+    evaluate_models()
