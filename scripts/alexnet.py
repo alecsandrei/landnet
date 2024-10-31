@@ -128,7 +128,7 @@ def train_and_save(
         )
         model = get_model()
 
-        df, _ = train_model(
+        df = train_model(
             model=model,
             train_loader=train_loader,
             validation_loader=validation_loader,
