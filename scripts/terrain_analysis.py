@@ -3,7 +3,7 @@ from pathlib import Path
 from PySAGA_cmd import SAGA
 
 from landnet import Data
-from landnet.terrain_analysis import TerrainAnalysis
+from landnet.raster import TerrainAnalysis
 
 
 def main(dem: Path, saga: SAGA, out_dir: Path):
