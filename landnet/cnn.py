@@ -58,10 +58,11 @@ def evaluate_model(
             x, y = x.to(device()), y.to(device()).reshape(-1, 1)
             pred = model(x)
             labels = pred.round()
+            loss = loss_fn(pred, y.float())
+            loss_value = loss.item()
             y_pred.extend(labels.tolist())
             y_true.extend(y.tolist())
-            loss = loss_fn(pred, y.float())
-            loss_values.append(loss.item())
+            loss_values.append(loss_value)
     return Metrics(
         float(accuracy_score(y_true, y_pred)),
         float(f1_score(y_true, y_pred)),
@@ -94,8 +95,8 @@ def one_epoch(
         loss.backward()
         optimizer.step()
         metrics = Metrics(
-            float(accuracy_score(y, labels)),
-            float(f1_score(y, labels)),
+            float(accuracy_score(y.tolist(), labels.tolist())),
+            float(f1_score(y.tolist(), labels.tolist())),
             loss_value,
         )
         return BatchResult(
