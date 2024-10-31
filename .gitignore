@@ -2,6 +2,7 @@ __pycache__
 .mypy_cache
 data/test_rasters
 data/train_rasters
+data/backup
 data/models
 *.csv
 venv/
