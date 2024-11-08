@@ -1,5 +1,8 @@
+"""Same as cnn_tune but instead stacks all of the GeomorphometricalVariables."""
+
 from __future__ import annotations
 
+import collections.abc as c
 import pickle
 import shutil
 import tempfile
@@ -15,7 +18,7 @@ from ray.air import CheckpointConfig
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.search.hyperopt import HyperOptSearch
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import ConcatDataset, DataLoader
 from torchvision.datasets import ImageFolder
 from torchvision.models import AlexNet_Weights, alexnet
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToTensor
@@ -28,12 +31,11 @@ if t.TYPE_CHECKING:
 
 
 NUM_WORKERS = 4
-EPOCHS = 10
+EPOCHS = 25
 WEIGHTS = AlexNet_Weights.IMAGENET1K_V1
 GPUS = 1
 CPUS = 4
 NUM_SAMPLES = 20
-
 LANDSLIDE_THRESHOLD = 0.05
 DATA_FOLDER = Path(__file__).parent.parent / 'data'
 TRAIN_FOLDER = DATA_FOLDER / 'train_rasters'
@@ -72,14 +74,21 @@ def get_transform() -> Compose:
 
 
 def get_train_loaders(
-    train_folder: Path, batch_size: int
+    train_folders: Path | c.Sequence[Path], batch_size: int
 ) -> tuple[DataLoader, DataLoader]:
+    if not isinstance(train_folders, c.Sequence):
+        train_folders = [train_folders]
     transform = get_transform()
     loader = partial(pil_loader, size=(100, 100))
-    train_image_folder = ImageFolder(
-        train_folder,
-        transform,
-        loader=loader,
+    train_image_folder: ConcatDataset[ImageFolder] = ConcatDataset(
+        [
+            ImageFolder(
+                train_folder,
+                transform,
+                loader=loader,
+            )
+            for train_folder in train_folders
+        ]
     )
     train_dataset, validation_dataset = torch.utils.data.random_split(
         train_image_folder, (0.7, 0.3)
@@ -101,12 +110,19 @@ def get_train_loaders(
     return (train_loader, validation_loader)
 
 
-def get_test_loader(test_folder: Path, batch_size):
+def get_test_loader(test_folders: Path | c.Sequence[Path], batch_size):
+    if not isinstance(test_folders, c.Sequence):
+        test_folders = [test_folders]
     loader = partial(pil_loader, size=(100, 100))
-    test_image_folder = ImageFolder(
-        test_folder,
-        get_transform(),
-        loader=loader,
+    test_image_folder: ConcatDataset[ImageFolder] = ConcatDataset(
+        [
+            ImageFolder(
+                test_folder,
+                get_transform(),
+                loader=loader,
+            )
+            for test_folder in test_folders
+        ]
     )
     return DataLoader(
         test_image_folder,
@@ -119,12 +135,11 @@ def get_test_loader(test_folder: Path, batch_size):
 
 def ray_train_wrapper(
     config,
-    train_folder: Path,
+    train_folders: c.Sequence[Path],
 ):
     batch_size, learning_rate = config['batch_size'], config['learning_rate']
-    print(f'Starting {train_folder.name}')
     train_loader, validation_loader = get_train_loaders(
-        train_folder, batch_size
+        train_folders, batch_size
     )
     model = get_model()
     loss_fn = nn.BCELoss()
@@ -202,38 +217,36 @@ def reclassify_rasters(
     LandslideImageFolder(image_folder).reclassify(tiles, landslide_threshold)
 
 
-def train_models():
+def train_model():
     MODELS_FOLDER.mkdir(exist_ok=True)
-    folders = zip(
-        [path for path in TRAIN_FOLDER.iterdir() if path.is_dir()],
-        [path for path in TEST_FOLDER.iterdir() if path.is_dir()],
-    )
+    train_folders = [path for path in TRAIN_FOLDER.iterdir() if path.is_dir()]
+    test_folders = [path for path in TEST_FOLDER.iterdir() if path.is_dir()]
+    model_output_name = 'all_variables'
 
-    for train_folder, test_folder in folders:
-        if (
-            MODELS_FOLDER / f'{train_folder.name}.pt'
-        ).exists() or train_folder.name in ['txt', 'mpi']:
-            continue
+    for train_folder, test_folder in zip(train_folders, test_folders):
+        assert train_folder.name == test_folder.name, (
+            train_folder.name,
+            test_folder.name,
+        )
         reclassify_rasters(
             train_folder, LANDSLIDE_THRESHOLD, TRAIN_LANDSLIDE_PERCENTAGE
         )
         reclassify_rasters(
             test_folder, LANDSLIDE_THRESHOLD, TEST_LANDSLIDE_PERCENTAGE
         )
-        assert train_folder.name == test_folder.name, (
-            train_folder.name,
-            test_folder.name,
-        )
+
+    if not (MODELS_FOLDER / model_output_name).with_suffix('.pt').exists():
+        print('EXISTS')
         train_func = partial(
             ray_train_wrapper,
-            train_folder=train_folder,
+            train_folders=train_folders,
         )
         tuner = get_tuner(
-            train_func, name=train_folder.name, storage_path=MODELS_FOLDER
+            train_func, name=model_output_name, storage_path=MODELS_FOLDER
         )
         results = tuner.fit()
         results.get_dataframe().to_csv(
-            (MODELS_FOLDER / train_folder.name).with_suffix('.csv')
+            (MODELS_FOLDER / model_output_name).with_suffix('.csv')
         )
         best_result = results.get_best_result('loss', 'min')
         assert best_result.config
@@ -251,38 +264,33 @@ def train_models():
         assert best_checkpoint is not None
         with best_checkpoint.as_directory() as checkpoint_dir:
             data_path = Path(checkpoint_dir) / 'checkpoint.pt'
-            rename_path = (MODELS_FOLDER / train_folder.name).with_suffix('.pt')
+            rename_path = (MODELS_FOLDER / model_output_name).with_suffix('.pt')
             rename_path.unlink(missing_ok=True)
             data_path.rename(rename_path)
             shutil.rmtree(data_path.parents[2])
+    test_model(test_folders)
 
 
-def evaluate_models():
-    for model_path in MODELS_FOLDER.glob('*.pt'):
-        df = pd.read_csv(
-            (model_path.parent / model_path.stem).with_suffix('.csv')
-        )
-        if not df.shape[0] == NUM_SAMPLES:
-            print(model_path, 'failed', df.shape[0])
-            continue
-        batch_size = int(df.sort_values(by='loss').iloc[0]['config/batch_size'])
-        with open(model_path, 'rb') as fp:
-            best_checkpoint_data = pickle.load(fp)
+def test_model(test_folders: c.Sequence[Path]):
+    path = MODELS_FOLDER / 'all_variables.pt'
+    df = pd.read_csv((path.parent / path.stem).with_suffix('.csv'))
+    batch_size = int(df.sort_values(by='loss').iloc[0]['config/batch_size'])
+    with open(path, 'rb') as fp:
+        best_checkpoint_data = pickle.load(fp)
 
-        model = get_model()
-        model.load_state_dict(best_checkpoint_data['net_state_dict'])
-        test_acc = evaluate_model(
-            model,
-            get_test_loader(TEST_FOLDER / model_path.stem, batch_size),
-            nn.BCELoss(),
+    model = get_model()
+    model.load_state_dict(best_checkpoint_data['net_state_dict'])
+    test_acc = evaluate_model(
+        model,
+        get_test_loader(test_folders, batch_size),
+        nn.BCELoss(),
+    )
+    print(
+        'Best test set accuracy for model {}: {}'.format(
+            path.stem, test_acc.metrics.formatted()
         )
-        print(
-            'Best test set accuracy for model {}: {}'.format(
-                model_path.stem, test_acc._formatted()
-            )
-        )
+    )
 
 
 if __name__ == '__main__':
-    train_models()
-    evaluate_models()
+    train_model()
