@@ -30,20 +30,20 @@ def device() -> torch.device:
     return torch.get_default_device()
 
 
-class EpochResult(t.NamedTuple):
-    train: PredictionResult
-    validation: PredictionResult
+class Epoch(t.NamedTuple):
+    train: Result
+    validation: Result
 
 
-class PredictionResult(t.NamedTuple):
-    metrics: Metrics
-    loss: float
-
-
-class BatchResult(t.NamedTuple):
+class Result(t.NamedTuple):
     true: c.Sequence[int]
     pred: c.Sequence[int]
-    result: PredictionResult
+    prediction: Prediction
+
+
+class Prediction(t.NamedTuple):
+    metrics: Metrics
+    loss: float
 
 
 class Metrics(t.NamedTuple):
@@ -59,7 +59,7 @@ class Metrics(t.NamedTuple):
         cls,
         y_true: c.Sequence[float],
         y_pred: c.Sequence[float],
-        labels: c.Sequence[t.Any] = (0, 1),
+        labels: c.Sequence[int] = (0, 1),
     ) -> Metrics:
         return cls(
             float(accuracy_score(y_true, y_pred)),
@@ -79,7 +79,7 @@ class Metrics(t.NamedTuple):
 
 def evaluate_model(
     model: nn.Module, test_loader: DataLoader, loss_fn: nn.Module
-) -> PredictionResult:
+) -> Result:
     model.eval()
     y_true = []
     y_pred = []
@@ -88,15 +88,16 @@ def evaluate_model(
         for x, y in test_loader:
             x, y = x.to(device()), y.to(device()).reshape(-1, 1)
             pred = model(x)
-            labels = pred.round()
+            labels = pred.round().int()
             loss = loss_fn(pred, y.float())
             loss_value = loss.item()
-            y_pred.extend(labels.tolist())
-            y_true.extend(y.tolist())
+            y_true.extend(y.flatten().tolist())
+            y_pred.extend(labels.flatten().tolist())
             loss_values.append(loss_value)
-    return PredictionResult(
-        Metrics.from_y(y_true, y_pred),
-        mean(loss_values),
+    return Result(
+        y_true,
+        y_pred,
+        Prediction(Metrics.from_y(y_true, y_pred), mean(loss_values)),
     )
 
 
@@ -106,12 +107,12 @@ def one_epoch(
     validation_batch: DataLoader,
     loss_fn: nn.Module,
     optimizer: Optimizer,
-) -> EpochResult:
+) -> Epoch:
     def one_batch(
         train_batch: DataLoader,
         loss_fn: nn.Module,
         optimizer: Optimizer,
-    ) -> BatchResult:
+    ) -> Result:
         x, y = train_batch
         x, y = (
             x.to(device()),
@@ -126,29 +127,29 @@ def one_epoch(
         optimizer.step()
         labels_list = labels.tolist()
         y_list = y.flatten().tolist()
-        result = PredictionResult(
-            Metrics.from_y(y_list, labels_list), loss_value
-        )
-        return BatchResult(
+        result = Prediction(Metrics.from_y(y_list, labels_list), loss_value)
+        return Result(
             y_list,
             labels_list,
             result,
         )
 
     model.train()
-    y_true: list[float] = []
-    y_pred: list[float] = []
+    y_true: list[int] = []
+    y_pred: list[int] = []
     loss_values = []
     for batch in train_batch:
         batch_result = one_batch(batch, loss_fn, optimizer)
         y_true.extend(batch_result.true)
         y_pred.extend(batch_result.pred)
-        loss_values.append(float(batch_result.result.loss))
+        loss_values.append(float(batch_result.prediction.loss))
     validation = evaluate_model(model, validation_batch, loss_fn)
-    training = PredictionResult(
-        Metrics.from_y(y_true, y_pred), mean(loss_values)
+    training = Result(
+        y_true,
+        y_pred,
+        Prediction(Metrics.from_y(y_true, y_pred), mean(loss_values)),
     )
-    return EpochResult(
+    return Epoch(
         training,
         validation,
     )
@@ -177,13 +178,14 @@ def train_model(
         )
         epoch_metrics.loc[epoch_metrics.shape[0], :] = [
             epoch,
-            *result.train,
-            *result.validation,
+            *result.train.prediction.metrics,
+            *result.validation.prediction.metrics,
         ]
+        # TODO: Also print loss?
         print(
             f'Epoch {epoch+1}/{num_epochs}',
-            f'|| Metrics for training: {result.train.metrics.formatted()}',
-            f'|| Metrics for validation: {result.validation.metrics.formatted()}',
+            f'|| Metrics for training: {result.train.prediction.metrics.formatted()}',
+            f'|| Metrics for validation: {result.validation.prediction.metrics.formatted()}',
         )
     if test_loader is not None:
         print('Test result: ', evaluate_model(model, test_loader, loss_fn))
