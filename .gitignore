@@ -9,3 +9,4 @@ venv/
 landnet.egg-info/
 *.xml
 .vscode
+figures/
