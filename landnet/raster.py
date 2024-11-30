@@ -70,7 +70,7 @@ def split_raster(
 
 
 class LandslideClass(Enum):
-    NON_LANDSLIDE = auto()
+    NO_LANDSLIDE = auto()
     LANDSLIDE = auto()
 
 
@@ -96,7 +96,7 @@ class LandslideImageFolder:
             if percentage >= threshold_percentage:
                 landslide_class = str(LandslideClass.LANDSLIDE.value)
             else:
-                landslide_class = str(LandslideClass.NON_LANDSLIDE.value)
+                landslide_class = str(LandslideClass.NO_LANDSLIDE.value)
 
             if path.parent.name != landslide_class:
                 new_folder = path.parents[1] / landslide_class
