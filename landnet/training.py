@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import collections.abc as c
 import typing as t
+import warnings
+from enum import Enum, auto
 from functools import cache
 from statistics import mean
 
+import numpy as np
 import pandas as pd
 import torch
 from sklearn.metrics import (
     accuracy_score,
     balanced_accuracy_score,
+    confusion_matrix,
     f1_score,
     precision_score,
     recall_score,
@@ -38,37 +42,83 @@ class Epoch(t.NamedTuple):
 class Result(t.NamedTuple):
     true: c.Sequence[int]
     pred: c.Sequence[int]
-    prediction: Prediction
-
-
-class Prediction(t.NamedTuple):
-    metrics: Metrics
+    logits: c.Sequence[float]
     loss: float
+
+    def confusion_matrix(self):
+        return confusion_matrix(self.true, self.pred)
+
+    def metrics(self) -> Metrics:
+        return Metrics.from_y(self.true, self.pred, self.logits)
+
+    def binary_classification_labels(
+        self,
+    ) -> list[t.Literal['tn', 'fn', 'tp', 'fp']]:
+        labels: list[t.Literal['tn', 'fn', 'tp', 'fp']] = []
+        for true, pred in zip(self.true, self.pred):
+            match (true, pred):
+                case (0, 0):
+                    labels.append('tn')
+                case (1, 0):
+                    labels.append('fn')
+                case (1, 1):
+                    labels.append('tp')
+                case (0, 1):
+                    labels.append('fp')
+        return labels
+
+    @classmethod
+    def from_results(
+        cls,
+        results: c.Sequence[Result],
+        loss_agg: c.Callable[[c.Sequence[float]], float] = mean,
+    ) -> Result:
+        if not results:
+            raise ValueError('At least one Result instance is required.')
+
+        true = [item for result in results for item in result.true]
+        pred = [item for result in results for item in result.pred]
+        logits = [item for result in results for item in result.logits]
+        loss = loss_agg([result.loss for result in results])
+
+        return cls(true, pred, logits, loss)
 
 
 class Metrics(t.NamedTuple):
     accuracy: float
     f1_score: float
-    precision_score: float
-    recall_score: float
+    negative_predictive_value: float
+    positive_predictive_value: float
+    specificity: float
+    sensitivity: float
     balanced_accuracy_score: float
     roc_auc_score: float
 
     @classmethod
     def from_y(
         cls,
-        y_true: c.Sequence[float],
-        y_pred: c.Sequence[float],
-        labels: c.Sequence[int] = (0, 1),
+        true: c.Sequence[int],
+        pred: c.Sequence[int],
+        logits: c.Sequence[float],
     ) -> Metrics:
-        return cls(
-            float(accuracy_score(y_true, y_pred)),
-            float(f1_score(y_true, y_pred, zero_division=0, labels=labels)),
-            float(precision_score(y_true, y_pred, labels=labels)),
-            float(recall_score(y_true, y_pred, labels=labels)),
-            float(balanced_accuracy_score(y_true, y_pred)),
-            float(roc_auc_score(y_true, y_pred, labels=labels)),
-        )
+        labels: c.Sequence[int] = (0, 1)
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore')
+            if np.unique(true).shape[0] == 2:
+                _roc_auc_score = roc_auc_score(true, logits, labels=labels)
+            else:
+                _roc_auc_score = 0
+
+            return cls(
+                float(accuracy_score(true, pred)),
+                float(f1_score(true, pred, zero_division=0, labels=labels)),
+                float(precision_score(true, pred, labels=labels, pos_label=0)),
+                float(precision_score(true, pred, labels=labels, pos_label=1)),
+                float(recall_score(true, pred, labels=labels, pos_label=0)),
+                float(recall_score(true, pred, labels=labels, pos_label=1)),
+                float(balanced_accuracy_score(true, pred)),
+                float(_roc_auc_score),
+            )
 
     def formatted(self) -> str:
         return ', '.join(
@@ -81,23 +131,54 @@ def evaluate_model(
     model: nn.Module, test_loader: DataLoader, loss_fn: nn.Module
 ) -> Result:
     model.eval()
-    y_true = []
-    y_pred = []
-    loss_values = []
+    results = []
     with torch.no_grad():
-        for x, y in test_loader:
-            x, y = x.to(device()), y.to(device()).reshape(-1, 1)
-            pred = model(x)
-            labels = pred.round().int()
-            loss = loss_fn(pred, y.float())
-            loss_value = loss.item()
-            y_true.extend(y.flatten().tolist())
-            y_pred.extend(labels.flatten().tolist())
-            loss_values.append(loss_value)
+        for batch in test_loader:
+            results.append(
+                handle_prediction(
+                    batch=batch,
+                    model=model,
+                    loss_fn=loss_fn,
+                    mode=Mode.EVALUATION,
+                )
+            )
+    return Result.from_results(results)
+
+
+class Mode(Enum):
+    TRAINING = auto()
+    EVALUATION = auto()
+
+
+def handle_prediction(
+    *,
+    batch: DataLoader,
+    model: nn.Module,
+    loss_fn: nn.Module,
+    mode: Mode = Mode.TRAINING,
+    optimizer: Optimizer | None = None,
+) -> Result:
+    if mode is Mode.TRAINING and optimizer is None:
+        raise ValueError('The optimizer was not provided in training mode.')
+    x, y = batch
+    x, y = x.to(device()), y.to(device()).reshape(-1, 1)
+    if optimizer:
+        optimizer.zero_grad()
+    logits = model(x)
+    labels = logits.round().int().flatten().tolist()
+    loss = loss_fn(logits, y.float())
+    logits = logits.flatten().tolist()
+    y = y.flatten().tolist()
+    loss_value = loss.item()
+    if mode is Mode.TRAINING:
+        loss.backward()
+        assert optimizer is not None
+        optimizer.step()
     return Result(
-        y_true,
-        y_pred,
-        Prediction(Metrics.from_y(y_true, y_pred), mean(loss_values)),
+        y,
+        labels,
+        logits,
+        loss_value,
     )
 
 
@@ -108,47 +189,20 @@ def one_epoch(
     loss_fn: nn.Module,
     optimizer: Optimizer,
 ) -> Epoch:
-    def one_batch(
-        train_batch: DataLoader,
-        loss_fn: nn.Module,
-        optimizer: Optimizer,
-    ) -> Result:
-        x, y = train_batch
-        x, y = (
-            x.to(device()),
-            y.to(device()).reshape(-1, 1),
-        )
-        optimizer.zero_grad()
-        pred = model(x)
-        labels = pred.flatten().int()
-        loss = loss_fn(pred, y.float())
-        loss_value = loss.item()
-        loss.backward()
-        optimizer.step()
-        labels_list = labels.tolist()
-        y_list = y.flatten().tolist()
-        result = Prediction(Metrics.from_y(y_list, labels_list), loss_value)
-        return Result(
-            y_list,
-            labels_list,
-            result,
-        )
-
     model.train()
-    y_true: list[int] = []
-    y_pred: list[int] = []
-    loss_values = []
+    results = []
     for batch in train_batch:
-        batch_result = one_batch(batch, loss_fn, optimizer)
-        y_true.extend(batch_result.true)
-        y_pred.extend(batch_result.pred)
-        loss_values.append(float(batch_result.prediction.loss))
+        results.append(
+            handle_prediction(
+                batch=batch,
+                model=model,
+                loss_fn=loss_fn,
+                mode=Mode.TRAINING,
+                optimizer=optimizer,
+            )
+        )
     validation = evaluate_model(model, validation_batch, loss_fn)
-    training = Result(
-        y_true,
-        y_pred,
-        Prediction(Metrics.from_y(y_true, y_pred), mean(loss_values)),
-    )
+    training = Result.from_results(results)
     return Epoch(
         training,
         validation,
@@ -173,19 +227,21 @@ def train_model(
         )
     )
     for epoch in range(num_epochs):
-        result = one_epoch(
+        train_result, validation_result = one_epoch(
             model, train_loader, validation_loader, loss_fn, optimizer
         )
+        train_metrics = train_result.metrics()
+        validation_metrics = validation_result.metrics()
         epoch_metrics.loc[epoch_metrics.shape[0], :] = [
             epoch,
-            *result.train.prediction.metrics,
-            *result.validation.prediction.metrics,
+            *train_metrics,
+            *validation_metrics,
         ]
-        # TODO: Also print loss?
         print(
             f'Epoch {epoch+1}/{num_epochs}',
-            f'|| Metrics for training: {result.train.prediction.metrics.formatted()}',
-            f'|| Metrics for validation: {result.validation.prediction.metrics.formatted()}',
+            f'|| Metrics for training: {train_metrics.formatted()}',
+            f'|| Metrics for validation: {validation_metrics.formatted()}',
+            f'|| Train loss: {train_result.loss}',
         )
     if test_loader is not None:
         print('Test result: ', evaluate_model(model, test_loader, loss_fn))
