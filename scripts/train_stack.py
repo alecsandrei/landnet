@@ -287,7 +287,7 @@ def test_model(test_folders: c.Sequence[Path]):
     )
     print(
         'Best test set accuracy for model {}: {}'.format(
-            path.stem, test_acc.metrics.formatted()
+            path.stem, test_acc.metrics().formatted()
         )
     )
 
