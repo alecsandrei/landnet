@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
+from torchvision.datasets import ImageFolder
+
 if t.TYPE_CHECKING:
     from os import PathLike
 
@@ -75,8 +77,9 @@ class LandslideClass(Enum):
 
 
 @dataclass
-class LandslideImageFolder:
-    path: Path
+class LandslideImageFolder(ImageFolder):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def get_tile_paths(self) -> TilePaths:
         tiles = {}
