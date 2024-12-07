@@ -7,7 +7,7 @@ license = {text = "MIT"}
 authors = [
   {name = "Alex-Andrei Cuvuliuc", email = "cuvuliucalexandrei@gmail.com"},
 ]
-dependencies = ['PySAGA-cmd', 'torch', 'ray', 'Pillow', 'torchvision', 'matplotlib']
+dependencies = ['PySAGA-cmd', 'torch', 'ray', 'Pillow', 'torchvision', 'matplotlib', 'seaborn']
 
 [tool.setuptools.packages.find]
 where = ["."]
