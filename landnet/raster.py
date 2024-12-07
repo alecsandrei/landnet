@@ -83,7 +83,7 @@ class LandslideImageFolder(ImageFolder):
 
     def get_tile_paths(self) -> TilePaths:
         tiles = {}
-        for file in self.path.rglob('*[0-9]*'):
+        for file in Path(self.root).rglob('*[0-9]*'):
             tile = int(''.join(filter(str.isdigit, file.name)))
             tiles[tile] = file
         return tiles
@@ -113,13 +113,13 @@ class LandslideImageFolder(ImageFolder):
                     )
                 )
                 path.rename(new_folder / path.name)
-        self.remove_empty_folders(self.path)
+        self.remove_empty_folders(Path(self.root))
 
     @staticmethod
-    def remove_empty_folders(path: Path):
+    def remove_empty_folders(path: Path) -> None:
         for dir_ in path.iterdir():
             if dir_.is_dir():
-                if not len(list(dir_.iterdir())):
+                if not list(dir_.iterdir()):
                     dir_.rmdir()
 
 
