@@ -7,6 +7,7 @@ from enum import Enum, auto
 from pathlib import Path
 
 from torchvision.datasets import ImageFolder
+from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToTensor
 
 if t.TYPE_CHECKING:
     from os import PathLike
@@ -54,6 +55,17 @@ class GeomorphometricalVariable(Enum):
     CELL_BALANCE = 'cbl'
     SAGA_WETNESS_INDEX = 'twi'
     WIND_EXPOSITION_INDEX = 'wind'
+
+
+def get_default_transform():
+    return Compose(
+        [
+            Resize((224, 224)),
+            ToTensor(),
+            Lambda(lambda x: (x - x.min()) / (x.max() - x.min())),
+            Normalize(mean=0.5, std=0.5),
+        ]
+    )
 
 
 def split_raster(

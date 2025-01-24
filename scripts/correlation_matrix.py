@@ -3,6 +3,7 @@ from functools import partial
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import plotly.express as px
 from PIL import Image
 
 from landnet import raster, stats
@@ -37,6 +38,17 @@ if __name__ == '__main__':
     )
 
     corr = stats.get_correlation_matrix(folders)
+    breakpoint()
+    fig = px.imshow(
+        corr,
+        text_auto='.2f',
+        color_continuous_scale='RdBu',
+        color_continuous_midpoint=0,
+    )
+    out_folder = PARENT / 'figures' / 'plotly_corr_matrix'
+    out_folder.mkdir(exist_ok=True)
+    fig.write_html(out_folder / 'graph.html')
+    exit()
     stats.get_correlation_matrix_plot(corr)
     plt.savefig(
         Path(__file__).parent.parent / 'figures' / 'correlation_matrix.png',
