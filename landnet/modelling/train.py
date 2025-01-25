@@ -72,8 +72,11 @@ def handle_prediction(
     y = y.flatten().tolist()
     loss_value = loss.item()
     if mode is Mode.TRAINING:
+        if optimizer is None:
+            raise ValueError(
+                f'Optimizer should have been provided when {mode=}'
+            )
         loss.backward()
-        assert optimizer is not None
         optimizer.step()
     return Result(
         y,
