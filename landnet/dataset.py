@@ -17,9 +17,6 @@ Mode = t.Literal['train', 'test']
 
 class TileProperties(t.TypedDict):
     path: str
-
-
-class ModelTileProperties(TileProperties):
     mode: Mode
     landslide_density: float
 
