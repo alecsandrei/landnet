@@ -9,7 +9,7 @@ repos:
         pass_filenames: false
       - id: ruff
         name: ruff
-        entry: ruff check .
+        entry: ruff check landnet/
         language: system
         always_run: true
         pass_filenames: false

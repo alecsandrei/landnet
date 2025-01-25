@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 import torch
+import torchvision
 from PIL import Image
 from ray import train, tune
 from ray.air import CheckpointConfig
@@ -23,19 +24,19 @@ from torchvision.datasets import ImageFolder
 from torchvision.models import AlexNet_Weights, alexnet
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToTensor
 
-from landnet.raster import LandslideImageFolder
-from landnet.training import device, evaluate_model, one_epoch
+from landnet.features import LandslideImageFolder
+from landnet.modelling.train import device, evaluate_model, one_epoch
 
 if t.TYPE_CHECKING:
     from torchvision.models import AlexNet
 
 
+USE_PRETRAINED_WEIGHTS = True
 NUM_WORKERS = 4
-EPOCHS = 25
-WEIGHTS = AlexNet_Weights.IMAGENET1K_V1
+EPOCHS = 10
 GPUS = 1
 CPUS = 4
-NUM_SAMPLES = 20
+NUM_SAMPLES = 5
 LANDSLIDE_THRESHOLD = 0.05
 DATA_FOLDER = Path(__file__).parent.parent / 'data'
 TRAIN_FOLDER = DATA_FOLDER / 'train_rasters'
@@ -51,13 +52,28 @@ def pil_loader(path: str, size: tuple[int, int]) -> Image.Image:
 
 
 def get_model() -> AlexNet:
-    model = alexnet(weights=WEIGHTS)
+    weights = None
+    if USE_PRETRAINED_WEIGHTS:
+        weights = AlexNet_Weights.IMAGENET1K_V1
+    model = alexnet(weights=weights)
     # Our data is single channel: insert a conv2d which outputs three channels
     model.features.insert(0, nn.Conv2d(1, 3, kernel_size=2))
     model.classifier[-1] = nn.Linear(
         4096, 1
     )  # we need 1 as output, binary classification
     model.classifier.append(nn.Sigmoid())
+    model.to(device())
+    return model
+
+
+def convnext():
+    weights = None
+    if USE_PRETRAINED_WEIGHTS:
+        weights = torchvision.models.ConvNeXt_Base_Weights.DEFAULT
+    model = torchvision.models.convnext_base(weights=weights)
+    conv_1x1 = nn.Conv2d(1, 3, kernel_size=1, stride=1, padding=0)
+    model.classifier[2] = nn.Linear(1024, 1, bias=True)
+    model = nn.Sequential(conv_1x1, model, nn.Sigmoid())
     model.to(device())
     return model
 
@@ -82,9 +98,9 @@ def get_train_loaders(
     loader = partial(pil_loader, size=(100, 100))
     train_image_folder: ConcatDataset[ImageFolder] = ConcatDataset(
         [
-            ImageFolder(
-                train_folder,
-                transform,
+            LandslideImageFolder(
+                root=train_folder,
+                transform=transform,
                 loader=loader,
             )
             for train_folder in train_folders
@@ -158,13 +174,23 @@ def ray_train_wrapper(
             with open(path, 'wb') as fp:
                 pickle.dump(checkpoint_data, fp)
             checkpoint = train.Checkpoint.from_directory(temp_checkpoint_dir)
-            train.report(result.validation._asdict(), checkpoint=checkpoint)
+            metrics = result.validation.metrics()
+            train.report(
+                {
+                    'loss': result.validation.loss,
+                    'f1_score': metrics.f1_score,
+                    'specificity': metrics.specificity,
+                    'sensitivity': metrics.sensitivity,
+                    'accuracy': metrics.accuracy,
+                },
+                checkpoint=checkpoint,
+            )
 
 
 def get_tune_config():
     return {
         'learning_rate': tune.loguniform(1e-6, 1e-1),
-        'batch_size': tune.choice([8, 16, 32, 64, 128]),
+        'batch_size': tune.choice([2, 4, 8]),
     }
 
 
@@ -214,13 +240,26 @@ def reclassify_rasters(
     )
     df_subset['landslide_percentage'] = df_subset['landslide_percentage'] / 100
     tiles = df_subset.to_dict()['landslide_percentage']
-    LandslideImageFolder(image_folder).reclassify(tiles, landslide_threshold)
+    LandslideImageFolder(root=image_folder).reclassify(
+        tiles, landslide_threshold
+    )
 
 
 def train_model():
     MODELS_FOLDER.mkdir(exist_ok=True)
-    train_folders = [path for path in TRAIN_FOLDER.iterdir() if path.is_dir()]
-    test_folders = [path for path in TEST_FOLDER.iterdir() if path.is_dir()]
+    variables = ['area', 'slope', 'shade', 'cmini', 'wind']
+    train_folders = [
+        path
+        for path in TRAIN_FOLDER.iterdir()
+        if path.is_dir()
+        if path.name in variables
+    ]
+    test_folders = [
+        path
+        for path in TEST_FOLDER.iterdir()
+        if path.is_dir()
+        if path.name in variables
+    ]
     model_output_name = 'all_variables'
 
     for train_folder, test_folder in zip(train_folders, test_folders):

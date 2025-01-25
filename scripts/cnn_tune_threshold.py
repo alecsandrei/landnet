@@ -25,17 +25,22 @@ from torch.utils.data import ConcatDataset, DataLoader
 from torchvision.datasets import ImageFolder
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToTensor
 
-from landnet.raster import (
+from landnet.features import (
     GeomorphometricalVariable,
     LandslideClass,
     LandslideImageFolder,
 )
-from landnet.training import Metrics, device, evaluate_model, one_epoch
+from landnet.modelling.train import (
+    Metrics,
+    device,
+    evaluate_model,
+    one_epoch,
+)
 
 if t.TYPE_CHECKING:
     from torchvision.models import AlexNet
 
-    from landnet.training import Result
+    from landnet.modelling.train import Result
 
 # model settings
 ARCHITECTURE = os.getenv('ARCHITECTURE', 'alexnet')  # or 'resnet50'

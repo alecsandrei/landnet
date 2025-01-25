@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import collections.abc as c
-import os
 import pickle
 import shutil
 import tempfile
@@ -25,38 +24,41 @@ from torch.utils.data import ConcatDataset, DataLoader
 from torchvision.datasets import ImageFolder
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToTensor
 
-from landnet.raster import LandslideClass, LandslideImageFolder
-from landnet.training import Metrics, device, evaluate_model, one_epoch
+from landnet.config import (
+    ARCHITECTURE,
+    CPUS,
+    EPOCHS,
+    FIGURES_DIR,
+    GPUS,
+    LANDSLIDE_DENSITY_THRESHOLD,
+    MODELS_DIR,
+    NUM_SAMPLES,
+    OVERWRITE,
+    PRETRAINED,
+    RAW_DATA_DIR,
+    TEST_TILES,
+    TRAIN_TILES,
+)
+from landnet.features import LandslideClass, LandslideImageFolder
+from landnet.modelling.train import (
+    Metrics,
+    device,
+    evaluate_model,
+    one_epoch,
+)
 
 if t.TYPE_CHECKING:
     from torchvision.models import AlexNet
 
-    from landnet.training import Result
+    from landnet.modelling.train import Result
 
 torch.cuda.empty_cache()
 
-# model settings
-ARCHITECTURE = os.getenv('ARCHITECTURE', 'alexnet')  # or 'resnet50' 'convnext'
-USE_PRETRAINED_WEIGHTS = True
-
-# training with ray settings
-EPOCHS = int(os.getenv('EPOCHS', 10))
-GPUS = 1
-CPUS = 4
-NUM_SAMPLES = int(os.getenv('NUM_SAMPLES', 10))
-
-# data settings
-LANDSLIDE_THRESHOLD = 0.05
 
 # dirs
-PARENT = Path(__file__).parent.parent
-DATA_FOLDER = PARENT / 'data'
-FIGURES_FOLDER = PARENT / 'figures'
-TRAIN_FOLDER = DATA_FOLDER / 'train_rasters'
-TRAIN_LANDSLIDE_PERCENTAGE = DATA_FOLDER / '66_65_ldl.csv'
-TEST_LANDSLIDE_PERCENTAGE = DATA_FOLDER / '66_64_ldl.csv'
-TEST_FOLDER = DATA_FOLDER / 'test_rasters'
-MODELS_FOLDER = DATA_FOLDER / 'models'
+TEMP_RAY_TUNING = MODELS_DIR / 'temp_ray_tune'
+TRAIN_LANDSLIDE_PERCENTAGE = RAW_DATA_DIR / 'train_landslide_density.csv'
+TEST_LANDSLIDE_PERCENTAGE = RAW_DATA_DIR / 'test_landslide_density.csv'
 
 
 def pil_loader(path: str, size: tuple[int, int]) -> Image.Image:
@@ -66,7 +68,7 @@ def pil_loader(path: str, size: tuple[int, int]) -> Image.Image:
 
 def alexnet() -> AlexNet:
     weights = None
-    if USE_PRETRAINED_WEIGHTS:
+    if PRETRAINED:
         weights = torchvision.models.AlexNet_Weights.DEFAULT
     model = torchvision.models.alexnet(weights=weights)
     conv_1x1 = nn.Conv2d(1, 3, kernel_size=1, stride=1, padding=0)
@@ -79,7 +81,7 @@ def alexnet() -> AlexNet:
 
 def resnet50() -> nn.Sequential:
     weights = None
-    if USE_PRETRAINED_WEIGHTS:
+    if PRETRAINED:
         weights = torchvision.models.ResNet50_Weights.DEFAULT
     model = torchvision.models.resnet50(weights=weights)
     conv_1x1 = nn.Conv2d(1, 3, kernel_size=1, stride=1, padding=0)
@@ -91,7 +93,7 @@ def resnet50() -> nn.Sequential:
 
 def convnext():
     weights = None
-    if USE_PRETRAINED_WEIGHTS:
+    if PRETRAINED:
         weights = torchvision.models.ConvNeXt_Base_Weights.DEFAULT
     model = torchvision.models.convnext_base(weights=weights)
     conv_1x1 = nn.Conv2d(1, 3, kernel_size=1, stride=1, padding=0)
@@ -119,9 +121,9 @@ def get_train_datasets(train_folders: Path | c.Sequence[Path]):
     loader = partial(pil_loader, size=(100, 100))
     train_image_folder: ConcatDataset[ImageFolder] = ConcatDataset(
         [
-            ImageFolder(
-                train_folder,
-                transform,
+            LandslideImageFolder(
+                root=train_folder,
+                transform=transform,
                 loader=loader,
             )
             for train_folder in train_folders
@@ -181,58 +183,6 @@ def get_test_loader(test_folders: Path | c.Sequence[Path], batch_size):
     )
 
 
-# def _ray_train_wrapper_cv(config, train_folder: Path):
-#     batch_size, learning_rate = config['batch_size'], config['learning_rate']
-#     print(f'Starting {train_folder.name}')
-#     train_datasets = get_train_datasets(train_folder)
-#     kfold = KFold(n_splits=KFOLDS, shuffle=True)
-#     dataset = ConcatDataset(train_datasets)
-#     for fold, (train_ids, test_ids) in enumerate(kfold.split(dataset)):
-#         # Print
-#         print(f'FOLD {fold}')
-#         print('--------------------------------')
-#         model: nn.Module = MODEL()
-#         loss_fn = nn.BCELoss()
-#         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-#         # Sample elements randomly from a given list of ids, no replacement.
-#         train_subsampler = torch.utils.data.SubsetRandomSampler(train_ids)
-#         test_subsampler = torch.utils.data.SubsetRandomSampler(test_ids)
-
-#         # Define data loaders for training and testing data in this fold
-#         train_loader = torch.utils.data.DataLoader(
-#             dataset, batch_size=batch_size, sampler=train_subsampler
-#         )
-#         validation_loader = torch.utils.data.DataLoader(
-#             dataset, batch_size=batch_size, sampler=test_subsampler
-#         )
-#         for epoch in range(EPOCHS):
-#             result = one_epoch(
-#                 model,
-#                 train_loader,
-#                 validation_loader,
-#                 loss_fn,
-#                 optimizer,
-#             )
-#             with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
-#                 path = Path(temp_checkpoint_dir) / 'checkpoint.pt'
-#                 checkpoint_data = {
-#                     'epoch': epoch,
-#                     'fold': fold,
-#                     'net_state_dict': model.state_dict(),
-#                     'optimizer_state_dict': optimizer.state_dict(),
-#                 }
-#                 with open(path, 'wb') as fp:
-#                     pickle.dump(checkpoint_data, fp)
-#                 checkpoint = train.Checkpoint.from_directory(
-#                     temp_checkpoint_dir
-#                 )
-#                 train.report(
-#                     result.validation.metrics._asdict()
-#                     | {'loss': result.validation.loss},
-#                     checkpoint=checkpoint,
-#                 )
-
-
 def ray_train_wrapper(config, train_folder: Path):
     batch_size, learning_rate = config['batch_size'], config['learning_rate']
     print(f'Starting {train_folder.name}')
@@ -242,7 +192,6 @@ def ray_train_wrapper(config, train_folder: Path):
     model: nn.Module = MODEL()
     loss_fn = nn.BCELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    # Sample elements randomly from a given list of ids, no replacement.
     for epoch in range(EPOCHS):
         result = one_epoch(
             model,
@@ -306,7 +255,7 @@ def get_tuner(train_func, **run_config_kwargs) -> tune.Tuner:
         run_config=train.RunConfig(
             **run_config_kwargs,
             checkpoint_config=CheckpointConfig(
-                num_to_keep=EPOCHS,
+                num_to_keep=2,
                 checkpoint_score_attribute='loss',
                 checkpoint_score_order='min',
             ),
@@ -327,40 +276,33 @@ def reclassify_rasters(
     )
     df_subset['landslide_percentage'] = df_subset['landslide_percentage'] / 100
     tiles = df_subset.to_dict()['landslide_percentage']
-    LandslideImageFolder(image_folder).reclassify(tiles, landslide_threshold)
+    LandslideImageFolder(root=image_folder).reclassify(
+        tiles, landslide_threshold
+    )
 
 
 def train_models():
-    MODELS_FOLDER.mkdir(exist_ok=True)
-    # variables = ['shade']
     folders = zip(
-        [
-            path
-            for path in TRAIN_FOLDER.iterdir()
-            if path.is_dir()
-            # if path.name in variables
-        ],
-        [
-            path
-            for path in TEST_FOLDER.iterdir()
-            if path.is_dir()
-            # if path.name in variables
-        ],
+        [path for path in TRAIN_TILES.iterdir() if path.is_dir()],
+        [path for path in TEST_TILES.iterdir() if path.is_dir()],
     )
 
     for train_folder, test_folder in folders:
-        out_name = MODELS_FOLDER / f'{train_folder.stem}_{ARCHITECTURE}'
+        out_name = MODELS_DIR / f'{train_folder.stem}_{ARCHITECTURE}'
         if (
-            out_name.with_suffix('.pt').exists()
+            not OVERWRITE
+            and out_name.with_suffix('.pt').exists()
             and out_name.with_suffix('.csv').exists()
         ):
             continue
 
         reclassify_rasters(
-            train_folder, LANDSLIDE_THRESHOLD, TRAIN_LANDSLIDE_PERCENTAGE
+            train_folder,
+            LANDSLIDE_DENSITY_THRESHOLD,
+            TRAIN_LANDSLIDE_PERCENTAGE,
         )
         reclassify_rasters(
-            test_folder, LANDSLIDE_THRESHOLD, TEST_LANDSLIDE_PERCENTAGE
+            test_folder, LANDSLIDE_DENSITY_THRESHOLD, TEST_LANDSLIDE_PERCENTAGE
         )
         assert train_folder.name == test_folder.name, (
             train_folder.name,
@@ -371,7 +313,9 @@ def train_models():
             train_folder=train_folder,
         )
         tuner = get_tuner(
-            train_func, name=train_folder.name, storage_path=MODELS_FOLDER
+            train_func,
+            name=train_folder.name,
+            storage_path=TEMP_RAY_TUNING,
         )
         results = tuner.fit()
         results.get_dataframe().to_csv(out_name.with_suffix('.csv'))
@@ -393,8 +337,7 @@ def train_models():
             data_path = Path(checkpoint_dir) / 'checkpoint.pt'
             rename_path = out_name.with_suffix('.pt')
             rename_path.unlink(missing_ok=True)
-            data_path.rename(rename_path)
-            shutil.rmtree(data_path.parents[2])
+            shutil.move(data_path, rename_path)
 
 
 def save_fig(path: Path) -> None:
@@ -466,11 +409,12 @@ def save_roc_curve(result: Result, out_fig: Path):
 def evaluate_models():
     df_test_results_metrics = pd.DataFrame()
     df_test_results_labels = pd.DataFrame()
-    for model_path in list(MODELS_FOLDER.glob(f'*{ARCHITECTURE}.pt'))[::-1]:
+    for model_path in list(MODELS_DIR.glob(f'*{ARCHITECTURE}.pt'))[::-1]:
         df = pd.read_csv(
             (model_path.parent / model_path.stem).with_suffix('.csv')
         )
         if not df.shape[0] == NUM_SAMPLES:
+            breakpoint()
             print(model_path, 'failed', df.shape[0])
             continue
         batch_size = int(df.sort_values(by='loss').iloc[0]['config/batch_size'])
@@ -479,7 +423,7 @@ def evaluate_models():
         model: nn.Module = MODEL()
         model.load_state_dict(best_checkpoint_data['net_state_dict'])
         test_loader = get_test_loader(
-            TEST_FOLDER / model_path.stem.replace(f'_{ARCHITECTURE}', ''),
+            TEST_TILES / model_path.stem.replace(f'_{ARCHITECTURE}', ''),
             batch_size,
         )
         test_results = evaluate_model(
@@ -493,13 +437,11 @@ def evaluate_models():
                 LandslideClass.NO_LANDSLIDE.name.replace('_', ' ').capitalize(),
                 LandslideClass.LANDSLIDE.name.capitalize(),
             ),
-            out_fig=(FIGURES_FOLDER / f'cm_{model_path.stem}').with_suffix(
-                '.png'
-            ),
+            out_fig=(FIGURES_DIR / f'cm_{model_path.stem}').with_suffix('.png'),
         )
         save_roc_curve(
             test_results,
-            out_fig=(FIGURES_FOLDER / f'roc_{model_path.stem}').with_suffix(
+            out_fig=(FIGURES_DIR / f'roc_{model_path.stem}').with_suffix(
                 '.png'
             ),
         )
@@ -524,10 +466,10 @@ def evaluate_models():
             )
         )
     df_test_results_metrics.to_csv(
-        MODELS_FOLDER / f'{ARCHITECTURE}_test_results.csv'
+        MODELS_DIR / f'{ARCHITECTURE}_test_results.csv'
     )
     df_test_results_labels.to_csv(
-        MODELS_FOLDER / f'{ARCHITECTURE}_test_labels.csv'
+        MODELS_DIR / f'{ARCHITECTURE}_test_labels.csv'
     )
 
 
@@ -535,3 +477,4 @@ if __name__ == '__main__':
     MODEL = locals()[ARCHITECTURE]
     train_models()
     evaluate_models()
+    shutil.rmtree(TEMP_RAY_TUNING, ignore_errors=False)
