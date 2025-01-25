@@ -31,5 +31,9 @@ PRETRAINED = bool(os.getenv('PRETRAINED_WEIGHTS', False))
 EPOCHS = int(os.getenv('EPOCHS', 10))
 GPUS = int(os.getenv('GPUS', 1))
 CPUS = int(os.getenv('CPUS', 4))
-NUM_SAMPLES = int(os.getenv('NUM_SAMPLES', 10))
-OVERWRITE = bool(os.getenv('OVERWRITE', False))
+NUM_SAMPLES = int(
+    os.getenv('NUM_SAMPLES', 10)
+)  # Number of models to train with ray for hyperparameter tuning
+OVERWRITE = bool(
+    os.getenv('OVERWRITE', False)
+)  # Whether or not to overwrite the existing models
