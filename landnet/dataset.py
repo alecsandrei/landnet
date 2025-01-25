@@ -54,7 +54,7 @@ def get_empty_geojson() -> GeoJSON:
 
 def create_tile_bounds_geojson() -> GeoJSON:
     geojson = get_empty_geojson()
-    images = Path(DEM_TILES).rglob('*.tif')
+    images = DEM_TILES.rglob('*.tif')
 
     def process_feature(feature: dict[str, t.Any], path: Path) -> Feature:
         keys_to_remove = [
