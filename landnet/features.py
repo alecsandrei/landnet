@@ -25,31 +25,79 @@ LandslideTile = int
 LandslideDensity = float
 TilePaths = dict[int, Path]
 ClassFolder = Path
+Mode = t.Literal['train', 'test']
+
+
+@dataclass
+class Fishnet:
+    reference_geometry: Polygon
+    rows: int
+    cols: int
+
+    def generate_grid(self, buffer: float | None = None) -> list[Polygon]:
+        """Generates a grid of polygons within the reference geometry."""
+        minx, miny, maxx, maxy = self.reference_geometry.bounds
+        cell_width = (maxx - minx) / self.cols
+        cell_height = (maxy - miny) / self.rows
+
+        grid = []
+        for i in range(self.rows):
+            for j in range(self.cols):
+                cell_minx = minx + j * cell_width
+                cell_maxx = cell_minx + cell_width
+                cell_miny = miny + i * cell_height
+                cell_maxy = cell_miny + cell_height
+                cell = box(cell_minx, cell_miny, cell_maxx, cell_maxy)
+                if self.reference_geometry.intersects(cell):
+                    if buffer:
+                        cell = cell.buffer(buffer, join_style='mitre')
+                    grid.append(cell.intersection(self.reference_geometry))
+
+        return grid
+
+
+def merge_rasters(datasets, **kwargs):
+    """Wrapper for rasterio.merge.merge"""
+    return rasterio.merge.merge(datasets, **kwargs)
 
 
 def get_merged_dem(
-    out_file: PathLike,
     tiles: gpd.GeoDataFrame,
-    model_tiles: gpd.GeoDataFrame,
-    scale: float,
-    buffer_units: int,
+    mode: Mode,
+    suffix: str,
+    scale: float | None = None,
+    buffer_units: int | None = None,
 ):
-    intersecting_tiles = tiles[
-        tiles.intersects(
-            t.cast(
-                shapely.Polygon | shapely.MultiPolygon, model_tiles.unary_union
-            ).buffer(scale * buffer_units)
-        )
-    ]
-    paths = (
-        os.fspath(DEM_TILES) + '/' + intersecting_tiles['path'].str.lstrip('/')
-    )
+    if scale is not None and buffer_units is not None:
+        tiles['geometry'] = tiles.buffer(scale * buffer_units)
+    paths = os.fspath(PROJ_ROOT) + '/' + tiles['path'].str.lstrip('/')
+    assert mode in ('train', 'test')
+    dst_path = INTERIM_DATA_DIR / f'{suffix}_{mode}_merged_dem.tif'
+    if dst_path.exists():
+        return dst_path
     rasterio.merge.merge(
         paths.values,
-        dst_path=out_file,
+        dst_path=dst_path,
         dst_kwds={'crs': rasterio.crs.CRS.from_epsg(EPSG)},
     )
-    return out_file
+    return dst_path
+
+
+def get_merged_dems(
+    tiles: gpd.GeoDataFrame, fishnet: Fishnet, mode: Mode, workers: int = 4
+) -> list[Path]:
+    cell_size = get_dem_cell_size(tiles.iloc[0])
+    dem_boundaries = fishnet.generate_grid(buffer=max(cell_size))
+
+    def handle_bounds(bounds: tuple[int, Polygon]) -> Path:
+        index, polygon = bounds
+        subset = tiles[tiles.intersects(polygon)]
+        return get_merged_dem(subset, mode, str(index))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(
+            executor.map(handle_bounds, enumerate(dem_boundaries, start=1))
+        )
 
 
 class GeomorphometricalVariable(Enum):
