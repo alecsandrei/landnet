@@ -84,8 +84,8 @@ def get_merged_dem(
     paths = os.fspath(PROJ_ROOT) + '/' + tiles['path'].str.lstrip('/')
     assert mode in ('train', 'test')
     dst_path = INTERIM_DATA_DIR / f'{suffix}_{mode}_merged_dem.tif'
-    if dst_path.exists():
-        return dst_path
+    # if dst_path.exists():
+    #     return dst_path
     rasterio.merge.merge(
         paths.values,
         dst_path=dst_path,
@@ -584,13 +584,102 @@ class TerrainAnalysis:
             # area=None,
             # slope=None,
             # area_mod=None,
-            twi=self.out_dir
-            / f'{GeomorphometricalVariable.SAGA_WETNESS_INDEX.value}.tif',
+            twi=self.get_out_path(GeomorphometricalVariable.SAGA_WETNESS_INDEX),
             suction=10,
             area_type=2,
             slope_type=1,
             slope_min=0,
             slope_off=0.1,
             slope_weight=1,
-            verbose=True,
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
+
+
+PROCESSED = 0
+
+
+def handle_tile(attributes: dict[str, t.Any]):
+    global PROCESSED
+    saga = SAGA('saga_cmd', version=Version(9, 8, 0))
+    path = PROJ_ROOT / attributes['path']
+    assert path.exists(), 'DEM path does not exist.'
+    terrain_analysis = TerrainAnalysis(
+        path,
+        saga,
+        attributes['mode'],
+        verbose=False,
+        infer_obj_type=False,
+        ignore_stderr=True,
+    )
+
+    for tool in terrain_analysis.execute():
+        if tool[1].stderr is not None:
+            print(
+                'Failed for', path, 'tool name', tool[0], '\n', tool[1].stderr
+            )
+    PROCESSED += 1
+    print('Processed', path, 'Total count:', PROCESSED)
+    return terrain_analysis
+
+
+def get_dem_cell_size(tile: pd.Series) -> tuple[float, float]:
+    dem_path = PROJ_ROOT / tile.path
+    with rasterio.open(dem_path, mode='r') as raster:
+        x, y = raster.res
+    return (x, y)
+
+
+def main():
+    tiles = t.cast(
+        gpd.GeoDataFrame, gpd.read_file(RAW_DATA_DIR / 'dem_tiles.geojson')
+    ).dropna(subset='mode')
+    train_tiles = t.cast(
+        gpd.GeoDataFrame, tiles[tiles.loc[:, 'mode'] == 'train']
+    )
+    test_tiles = t.cast(gpd.GeoDataFrame, tiles[tiles.loc[:, 'mode'] == 'test'])
+
+    train_tiles_limit = box(
+        *t.cast(Polygon, train_tiles.dissolve().geometry.iloc[0]).bounds
+    )
+
+    fishnet = Fishnet(train_tiles_limit, 4, 4)
+    # gpd.GeoDataFrame(geometry=fishnet).to_file(RAW_DATA_DIR / 'fishnet.shp')
+    start = time.perf_counter()
+    merged_dems = get_merged_dems(train_tiles, fishnet, 'train')
+    end = time.perf_counter()
+    print('Execution duration:', end - start)
+    breakpoint()
+
+    # train_dem = get_merged_dem(
+    #     train_tiles,
+    #     scale=10,
+    #     buffer_units=1,
+    # )
+    # train_dem = get_merged_dem(
+    #     test_tiles,
+    #     scale=10,
+    #     buffer_units=1,
+    # )
+    # train_terrain_analysis = TerrainAnalysis(
+    #     train_dem, saga, mode='train', verbose=True
+    # )
+    # test_terrain_analysis = TerrainAnalysis(
+    #     train_dem, saga, mode='test', verbose=True
+    # )
+    with concurrent.futures.ProcessPoolExecutor(max_workers=100) as executor:
+        results = executor.map(handle_tile, tiles.to_dict('index').values())
+
+    breakpoint()
+
+    # def handle_terrain_analysis(terrain_analysis: TerrainAnalysis):
+    #     print(f'Executing tools for {terrain_analysis.mode=}')
+    #     list(terrain_analysis.execute())
+
+    # handle_terrain_analysis(train_terrain_analysis)
+    # handle_terrain_analysis(test_terrain_analysis)
+
+
+if __name__ == '__main__':
+    main()
