@@ -1,23 +1,34 @@
 from __future__ import annotations
 
 import collections.abc as c
+import concurrent.futures
 import os
+import time
 import typing as t
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
+import geopandas as gpd
 import rasterio.crs
 import rasterio.merge
-import shapely
+from PySAGA_cmd import SAGA
+from PySAGA_cmd.saga import Version
+from shapely import Polygon, box
 from torchvision.datasets import ImageFolder
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToTensor
 
-from landnet.config import DEM_TILES, EPSG
+from landnet.config import (
+    EPSG,
+    INTERIM_DATA_DIR,
+    PROCESSED_DATA_DIR,
+    PROJ_ROOT,
+    RAW_DATA_DIR,
+)
 
 if t.TYPE_CHECKING:
-    import geopandas as gpd
-    from PySAGA_cmd.saga import SAGA, Library, ToolOutput
+    import pandas as pd
+    from PySAGA_cmd.saga import Library, ToolOutput
 
 
 PathLike = os.PathLike | str
