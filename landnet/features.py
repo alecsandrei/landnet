@@ -226,19 +226,30 @@ class LandslideImageFolder(ImageFolder):
 
 
 class TerrainAnalysis:
-    def __init__(self, dem: PathLike, saga: SAGA, out_dir: PathLike):
-        self.dem = dem
+    def __init__(
+        self,
+        dem: PathLike,
+        saga: SAGA,
+        mode: Mode,
+        verbose: bool,
+        infer_obj_type: bool,
+        ignore_stderr: bool,
+    ):
+        self.dem = Path(dem)
         self.saga = saga
-        self.out_dir = Path(out_dir)
-        self.out_dir.mkdir(exist_ok=True)
+        self.mode = mode
+        self.verbose = verbose
+        self.infer_obj_type = infer_obj_type
+        self.ignore_stderr = ignore_stderr
+
         self.tools: list[c.Callable[..., ToolOutput]] = [
             self.index_of_convergence,
             self.terrain_surface_convexity,
             self.topographic_openness,
             self.slope_aspect_curvature,
             self.real_surface_area,
-            self.wind_exposition_index,
-            self.topographic_position_index,
+            # self.wind_exposition_index,
+            # self.topographic_position_index,
             self.valley_depth,
             self.terrain_ruggedness_index,
             self.vector_ruggedness_measure,
@@ -270,31 +281,39 @@ class TerrainAnalysis:
     def hydrology(self) -> Library:
         return self.saga / 'ta_hydrology'
 
+    def get_out_path(self, variable: GeomorphometricalVariable) -> Path:
+        out_path = (
+            PROCESSED_DATA_DIR
+            / f'{self.mode}_tiles'
+            / variable.value
+            / self.dem.name
+        )
+        os.makedirs(out_path.parent, exist_ok=True)
+        return out_path
+
     def index_of_convergence(self) -> ToolOutput:
         """Requires 1 or 2 units of buffer depending on the neighbours parameter."""
         tool = self.morphometry / 'Convergence Index'
-        out_path = (
-            self.out_dir
-            / f'{GeomorphometricalVariable.INDEX_OF_CONVERGENCE.value}.tif'
-        )
         return tool.execute(
             elevation=self.dem,
-            result=out_path,
+            result=self.get_out_path(
+                GeomorphometricalVariable.INDEX_OF_CONVERGENCE
+            ),
             method=0,
             neighbours=0,
-            verbose=True,
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def terrain_surface_convexity(self) -> ToolOutput:
         """Requires 1 unit of buffer."""
         tool = self.morphometry / 'Terrain Surface Convexity'
-        out_path = (
-            self.out_dir
-            / f'{GeomorphometricalVariable.TERRAIN_SURFACE_CONVEXITY.value}.tif'
-        )
         return tool.execute(
             dem=self.dem,
-            convexity=out_path,
+            convexity=self.get_out_path(
+                GeomorphometricalVariable.TERRAIN_SURFACE_CONVEXITY
+            ),
             kernel=0,
             type=0,
             epsilon=0,
@@ -303,7 +322,9 @@ class TerrainAnalysis:
             dw_weighting=3,
             dw_idw_power=2,
             dw_bandwidth=0.7,
-            verbose=True,
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def analytical_hillshading(self) -> ToolOutput:
@@ -311,8 +332,10 @@ class TerrainAnalysis:
         return tool.execute(
             elevation=self.dem,
             method='5',
-            shade=self.out_dir
-            / f'{GeomorphometricalVariable.HILLSHADE.value}.tif',
+            shade=self.get_out_path(GeomorphometricalVariable.HILLSHADE),
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def topographic_openness(self) -> ToolOutput:
@@ -320,10 +343,12 @@ class TerrainAnalysis:
         tool = self.lighting / 'Topographic Openness'
         return tool.execute(
             dem=self.dem,
-            pos=self.out_dir
-            / f'{GeomorphometricalVariable.POSITIVE_TOPOGRAPHIC_OPENNESS.value}.tif',
-            neg=self.out_dir
-            / f'{GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS.value}.tif',
+            pos=self.get_out_path(
+                GeomorphometricalVariable.POSITIVE_TOPOGRAPHIC_OPENNESS
+            ),
+            neg=self.get_out_path(
+                GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS
+            ),
             radius=100,
             directions=1,
             direction=315,
@@ -332,7 +357,9 @@ class TerrainAnalysis:
             dlevel=3.0,
             unit=0,
             nadir=1,
-            verbose=True,
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def slope_aspect_curvature(self) -> ToolOutput:
@@ -342,54 +369,66 @@ class TerrainAnalysis:
         tool = self.morphometry / 'Slope, Aspect, Curvature'
         return tool.execute(
             elevation=self.dem,
-            slope=self.out_dir / f'{GeomorphometricalVariable.SLOPE.value}.tif',
-            c_gene=self.out_dir
-            / f'{GeomorphometricalVariable.GENERAL_CURVATURE.value}.tif',
-            c_prof=self.out_dir
-            / f'{GeomorphometricalVariable.PROFILE_CURVATURE.value}.tif',
-            c_plan=self.out_dir
-            / f'{GeomorphometricalVariable.PLAN_CURVATURE.value}.tif',
-            c_tang=self.out_dir
-            / f'{GeomorphometricalVariable.TANGENTIAL_CURVATURE.value}.tif',
-            c_long=self.out_dir
-            / f'{GeomorphometricalVariable.LONGITUDINAL_CURVATURE.value}.tif',
-            c_cros=self.out_dir
-            / f'{GeomorphometricalVariable.CROSS_SECTIONAL_CURVATURE.value}.tif',
-            c_mini=self.out_dir
-            / f'{GeomorphometricalVariable.MINIMAL_CURVATURE.value}.tif',
-            c_maxi=self.out_dir
-            / f'{GeomorphometricalVariable.MAXIMAL_CURVATURE.value}.tif',
-            c_tota=self.out_dir
-            / f'{GeomorphometricalVariable.TOTAL_CURVATURE.value}.tif',
-            c_roto=self.out_dir
-            / f'{GeomorphometricalVariable.FLOW_LINE_CURVATURE.value}.tif',
+            slope=self.get_out_path(GeomorphometricalVariable.SLOPE),
+            c_gene=self.get_out_path(
+                GeomorphometricalVariable.GENERAL_CURVATURE
+            ),
+            c_prof=self.get_out_path(
+                GeomorphometricalVariable.PROFILE_CURVATURE
+            ),
+            c_plan=self.get_out_path(GeomorphometricalVariable.PLAN_CURVATURE),
+            c_tang=self.get_out_path(
+                GeomorphometricalVariable.TANGENTIAL_CURVATURE
+            ),
+            c_long=self.get_out_path(
+                GeomorphometricalVariable.LONGITUDINAL_CURVATURE
+            ),
+            c_cros=self.get_out_path(
+                GeomorphometricalVariable.CROSS_SECTIONAL_CURVATURE
+            ),
+            c_mini=self.get_out_path(
+                GeomorphometricalVariable.MINIMAL_CURVATURE
+            ),
+            c_maxi=self.get_out_path(
+                GeomorphometricalVariable.MAXIMAL_CURVATURE
+            ),
+            c_tota=self.get_out_path(GeomorphometricalVariable.TOTAL_CURVATURE),
+            c_roto=self.get_out_path(
+                GeomorphometricalVariable.FLOW_LINE_CURVATURE
+            ),
             method=6,
             unit_slope=0,
             unit_aspect=0,
-            verbose=True,
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def real_surface_area(self) -> ToolOutput:
         tool = self.morphometry / 'Real Surface Area'
         return tool.execute(
             dem=self.dem,
-            area=self.out_dir
-            / f'{GeomorphometricalVariable.REAL_SURFACE_AREA.value}.tif',
-            verbose=True,
+            area=self.get_out_path(GeomorphometricalVariable.REAL_SURFACE_AREA),
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def wind_exposition_index(self) -> ToolOutput:
         tool = self.morphometry / 'Wind Exposition Index'
         return tool.execute(
             dem=self.dem,
-            exposition=self.out_dir
-            / f'{GeomorphometricalVariable.WIND_EXPOSITION_INDEX.value}.tif',
-            maxdist=300,
-            step=15,
+            exposition=self.get_out_path(
+                GeomorphometricalVariable.WIND_EXPOSITION_INDEX
+            ),
+            maxdist=0.1,
+            step=90,
             oldver=0,
             accel=1.5,
             pyramids=0,
-            verbose=True,
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def topographic_position_index(self) -> ToolOutput:
@@ -397,28 +436,32 @@ class TerrainAnalysis:
         tool = self.morphometry / 'Topographic Position Index (TPI)'
         return tool.execute(
             dem=self.dem,
-            tpi=self.out_dir
-            / f'{GeomorphometricalVariable.TOPOGRAPHIC_POSITION_INDEX.value}.tif',
+            tpi=self.get_out_path(
+                GeomorphometricalVariable.TOPOGRAPHIC_POSITION_INDEX
+            ),
             standard=0,
-            radius_min=0,
-            radius_max=100,
             dw_weighting=0,
             dw_idw_power=2,
             dw_bandwidth=75,
-            verbose=True,
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def valley_depth(self) -> ToolOutput:
         tool = self.channels / 'Valley Depth'
         return tool.execute(
             elevation=self.dem,
-            valley_depth=self.out_dir
-            / f'{GeomorphometricalVariable.VALLEY_DEPTH.value}.tif',
+            valley_depth=self.get_out_path(
+                GeomorphometricalVariable.VALLEY_DEPTH
+            ),
             threshold=1,
             maxiter=0,
             nounderground=1,
             order=4,
-            verbose=True,
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def terrain_ruggedness_index(self) -> ToolOutput:
@@ -426,14 +469,17 @@ class TerrainAnalysis:
         tool = self.morphometry / 'Terrain Ruggedness Index (TRI)'
         return tool.execute(
             dem=self.dem,
-            tri=self.out_dir
-            / f'{GeomorphometricalVariable.TERRAIN_RUGGEDNESS_INDEX.value}.tif',
+            tri=self.get_out_path(
+                GeomorphometricalVariable.TERRAIN_RUGGEDNESS_INDEX
+            ),
             mode=1,
             radius=1,
             dw_weighting=0,
             dw_idw_power=2,
             dw_bandwidth=75,
-            verbose=True,
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def vector_ruggedness_measure(self) -> ToolOutput:
@@ -441,14 +487,17 @@ class TerrainAnalysis:
         tool = self.morphometry / 'Vector Ruggedness Measure (VRM)'
         return tool.execute(
             dem=self.dem,
-            vrm=self.out_dir
-            / f'{GeomorphometricalVariable.VECTOR_RUGGEDNESS_MEASURE.value}.tif',
+            vrm=self.get_out_path(
+                GeomorphometricalVariable.VECTOR_RUGGEDNESS_MEASURE
+            ),
             mode=1,
             radius=1,
             dw_weighting=0,
             dw_idw_power=2,
             dw_bandwidth=75,
-            verbose=True,
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def upslope_and_downslope_curvature(self) -> ToolOutput:
@@ -456,30 +505,36 @@ class TerrainAnalysis:
         tool = self.morphometry / 'Upslope and Downslope Curvature'
         return tool.execute(
             dem=self.dem,
-            c_local=self.out_dir
-            / f'{GeomorphometricalVariable.LOCAL_CURVATURE.value}.tif',
-            c_up=self.out_dir
-            / f'{GeomorphometricalVariable.UPSLOPE_CURVATURE.value}.tif',
-            c_up_local=self.out_dir
-            / f'{GeomorphometricalVariable.LOCAL_UPSLOPE_CURVATURE.value}.tif',
-            c_down=self.out_dir
-            / f'{GeomorphometricalVariable.DOWNSLOPE_CURVATURE.value}.tif',
-            c_down_local=self.out_dir
-            / f'{GeomorphometricalVariable.LOCAL_DOWNSLOPE_CURVATURE.value}.tif',
+            c_local=self.get_out_path(
+                GeomorphometricalVariable.LOCAL_CURVATURE
+            ),
+            c_up=self.get_out_path(GeomorphometricalVariable.UPSLOPE_CURVATURE),
+            c_up_local=self.get_out_path(
+                GeomorphometricalVariable.LOCAL_UPSLOPE_CURVATURE
+            ),
+            c_down=self.get_out_path(
+                GeomorphometricalVariable.DOWNSLOPE_CURVATURE
+            ),
+            c_down_local=self.get_out_path(
+                GeomorphometricalVariable.LOCAL_DOWNSLOPE_CURVATURE
+            ),
             weighting=0.5,
-            verbose=True,
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def flow_accumulation_parallelizable(self) -> ToolOutput:
         tool = self.hydrology / 'Flow Accumulation (Parallelizable)'
         return tool.execute(
             dem=self.dem,
-            flow=self.out_dir
-            / f'{GeomorphometricalVariable.FLOW_ACCUMULATION.value}.tif',
+            flow=self.get_out_path(GeomorphometricalVariable.FLOW_ACCUMULATION),
             update=0,
             method=2,
             convergence=1.1,
-            verbose=True,
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def flow_path_length(self) -> ToolOutput:
@@ -487,21 +542,25 @@ class TerrainAnalysis:
         return tool.execute(
             elevation=self.dem,
             # seed=None,
-            length=self.out_dir
-            / f'{GeomorphometricalVariable.FLOW_PATH_LENGTH.value}.tif',
+            length=self.get_out_path(
+                GeomorphometricalVariable.FLOW_PATH_LENGTH
+            ),
             seeds_only=0,
             method=1,
             convergence=1.1,
-            verbose=True,
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def slope_length(self) -> ToolOutput:
         tool = self.hydrology / 'Slope Length'
         return tool.execute(
             dem=self.dem,
-            length=self.out_dir
-            / f'{GeomorphometricalVariable.SLOPE_LENGTH.value}.tif',
-            verbose=True,
+            length=self.get_out_path(GeomorphometricalVariable.SLOPE_LENGTH),
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def cell_balance(self) -> ToolOutput:
@@ -510,10 +569,11 @@ class TerrainAnalysis:
             dem=self.dem,
             # weights=None,
             weights_default=1,
-            balance=self.out_dir
-            / f'{GeomorphometricalVariable.CELL_BALANCE.value}.tif',
+            balance=self.get_out_path(GeomorphometricalVariable.CELL_BALANCE),
             method=1,
-            verbose=True,
+            verbose=self.verbose,
+            infer_obj_type=self.infer_obj_type,
+            ignore_stderr=self.ignore_stderr,
         )
 
     def saga_wetness_index(self) -> ToolOutput:
