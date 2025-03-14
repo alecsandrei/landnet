@@ -21,6 +21,7 @@ FIGURES_DIR = REPORTS_DIR / 'figures'
 
 # GIS configs
 EPSG = 3844
+SAGA_CMD = None  # could be configures to specify path to saga_cmd
 
 # Model configs
 LANDSLIDE_DENSITY_THRESHOLD = float(
