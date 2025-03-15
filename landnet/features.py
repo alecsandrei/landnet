@@ -2,32 +2,42 @@ from __future__ import annotations
 
 import collections.abc as c
 import concurrent.futures
+import functools
 import os
-import time
 import typing as t
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
 import geopandas as gpd
+import numpy as np
 import rasterio.crs
+import rasterio.mask
 import rasterio.merge
+import rasterio.warp
 from PySAGA_cmd import SAGA
 from PySAGA_cmd.saga import Version
+from rasterio import DatasetReader, windows
+from rasterio.enums import Resampling
+from rasterio.features import dataset_features
 from shapely import Polygon, box
 from torchvision.datasets import ImageFolder
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToTensor
 
 from landnet.config import (
+    DEM_TILES,
     EPSG,
     INTERIM_DATA_DIR,
-    PROCESSED_DATA_DIR,
+    NODATA,
     PROJ_ROOT,
+    RASTER_CELL_SIZE,
     RAW_DATA_DIR,
+    TEST_TILES,
+    TRAIN_TILES,
 )
+from landnet.dataset import Feature, geojson_to_gdf, get_empty_geojson
 
 if t.TYPE_CHECKING:
-    import pandas as pd
     from PySAGA_cmd.saga import Library, ToolOutput
 
 
@@ -37,13 +47,230 @@ LandslideDensity = float
 TilePaths = dict[int, Path]
 ClassFolder = Path
 Mode = t.Literal['train', 'test']
+Rows = int
+Columns = int
+
+
+def get_tiles(
+    ds: DatasetReader, tile_width, tile_height, overlap: int | None = None
+):
+    if overlap is None:
+        overlap = 0
+    ncols, nrows = ds.meta['width'], ds.meta['height']
+    xstep = tile_width
+    ystep = tile_height
+    for x in range(0, ncols + xstep, xstep):
+        if x >= ncols:
+            break
+        # if ncols - x <= overlap:
+        #     break
+        if x != 0:
+            x -= overlap
+        width = tile_width + overlap * (2 if x != 0 else 1)
+        if x + width > ncols:
+            x = ncols - width
+        for y in range(0, nrows + ystep, ystep):
+            # print(x, y, nrows, ncols)
+            if y >= nrows:
+                break
+            # if nrows - y <= overlap:
+            #     break
+            if y != 0:
+                y -= overlap
+            height = tile_height + overlap * (2 if y != 0 else 1)
+            if y + height > nrows:
+                y = nrows - height
+            window = windows.Window(x, y, width, height)  # type: ignore
+            transform = windows.transform(window, ds.transform)
+            yield window, transform
+
+
+@dataclass
+class RasterTiles:
+    tiles: gpd.GeoDataFrame
+    parent_dir: Path
+
+    @classmethod
+    def from_dir(cls, tiles_parent: Path, suffix: str = '.tif') -> t.Self:
+        geojson = get_empty_geojson()
+        images = tiles_parent.rglob(f'*{suffix}')
+
+        def process_feature(feature: dict[str, t.Any], path: Path) -> Feature:
+            keys_to_remove = [
+                k
+                for k in feature
+                if k not in Feature.__required_keys__
+                and k not in Feature.__optional_keys__
+            ]
+            for k in keys_to_remove:
+                feature.pop(k)
+            feature['properties'] = {
+                'path': path.relative_to(tiles_parent).as_posix()
+            }
+            return t.cast(Feature, feature)
+
+        def get_features(tif: Path) -> list[Feature]:
+            with rasterio.open(tif) as raster:
+                features = [
+                    process_feature(feature, tif)
+                    for feature in dataset_features(
+                        raster,
+                        bidx=1,
+                        as_mask=True,
+                        geographic=False,
+                        band=False,
+                    )
+                ]
+
+            return features
+
+        for image in list(images):
+            geojson['features'].extend(get_features(image))
+        return cls(geojson_to_gdf(geojson), tiles_parent)
+
+    @classmethod
+    def from_raster(
+        cls,
+        raster: Path,
+        tile_size: tuple[Rows, Columns],
+        overlap: int,
+        out_dir: Path,
+        suffix: str = '.tif',
+    ) -> t.Self:
+        with rasterio.open(raster) as src:
+            metadata = src.meta.copy()
+
+            for window, transform in get_tiles(
+                src,
+                tile_size[0],
+                tile_size[1],
+                overlap,
+            ):
+                metadata['transform'] = transform
+                metadata['width'], metadata['height'] = (
+                    window.width,
+                    window.height,
+                )
+                out_filepath = (
+                    out_dir / f'{window.col_off}_{window.row_off}{suffix}'
+                )
+
+                with rasterio.open(out_filepath, 'w', **metadata) as dst:
+                    dst.write(src.read(window=window))
+        return cls.from_dir(out_dir, suffix)
+
+    def add_overlap(
+        self,
+        overlap: int,
+        tile_size: tuple[Rows, Columns] = (100, 100),
+    ) -> t.Self:
+        merged = self.merge(self.parent_dir / 'merged.tif')
+        parent_dir = self.parent_dir.parent / f'overlap_{self.parent_dir.name}'
+        with rasterio.open(merged) as src:
+            metadata = src.meta.copy()
+
+            for window, transform in get_tiles(
+                src,
+                tile_size[0],
+                tile_size[1],
+                overlap,
+            ):
+                metadata['transform'] = transform
+                metadata['width'], metadata['height'] = (
+                    window.width,
+                    window.height,
+                )
+                bounds = box(*windows.bounds(window, src.transform))
+                tile = self.tiles[self.tiles.within(bounds)].iloc[0]
+
+                out_filepath = parent_dir / tile['path']
+                os.makedirs(out_filepath.parent, exist_ok=True)
+                with rasterio.open(out_filepath, 'w', **metadata) as dst:
+                    dst.write(src.read(window=window))
+        return self.from_dir(parent_dir)
+
+    def resample(
+        self, out_dir: Path, resampling: Resampling = Resampling.bilinear
+    ) -> t.Self:
+        os.makedirs(out_dir, exist_ok=True)
+        crs = rasterio.crs.CRS.from_epsg(EPSG)
+
+        def from_path(tile_path: str):
+            path = self.parent_dir / tile_path
+            dest = out_dir / tile_path
+            os.makedirs(dest.parent, exist_ok=True)
+            with rasterio.open(path) as ds:
+                arr = ds.read(1)
+            meta = ds.meta.copy()
+            newaff, width, height = rasterio.warp.calculate_default_transform(
+                ds.crs,
+                ds.crs,
+                ds.width,
+                ds.height,
+                *ds.bounds,
+                resolution=RASTER_CELL_SIZE,
+            )
+            newarr = np.ma.asanyarray(
+                np.empty(
+                    shape=(1, t.cast(int, height), t.cast(int, width)),
+                    dtype=arr.dtype,
+                )
+            )
+            rasterio.warp.reproject(
+                arr,
+                newarr,
+                src_transform=ds.transform,
+                dst_transform=newaff,
+                width=width,
+                height=height,
+                src_nodata=NODATA,
+                dst_nodata=NODATA,
+                src_crs=crs,
+                dst_crs=crs,
+                resample=resampling,
+            )
+            meta.update(
+                {
+                    'transform': newaff,
+                    'width': width,
+                    'height': height,
+                    'nodata': NODATA,
+                    'crs': crs,
+                }
+            )
+            with rasterio.open(dest, mode='w', **meta) as dest_raster:
+                dest_raster.write(newarr)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            results = executor.map(from_path, self.tiles['path'])
+            for result in results:
+                if isinstance(result, Exception):
+                    raise result
+
+        return self.from_dir(out_dir)
+
+    def merge(self, out_file: Path) -> Path:
+        paths = (
+            self.parent_dir.as_posix()
+            + '/'
+            + self.tiles['path'].str.lstrip('/')
+        )
+        # out_file.unlink(missing_ok=True)
+        rasterio.merge.merge(
+            paths.values,
+            res=RASTER_CELL_SIZE,
+            resampling=Resampling.bilinear,
+            dst_path=out_file,
+            nodata=NODATA,
+        )
+        return out_file
 
 
 @dataclass
 class Fishnet:
     reference_geometry: Polygon
-    rows: int
-    cols: int
+    rows: Rows
+    cols: Columns
 
     def generate_grid(self, buffer: float | None = None) -> list[Polygon]:
         """Generates a grid of polygons within the reference geometry."""
@@ -75,21 +302,20 @@ def merge_rasters(datasets, **kwargs):
 def get_merged_dem(
     tiles: gpd.GeoDataFrame,
     mode: Mode,
-    suffix: str,
-    scale: float | None = None,
-    buffer_units: int | None = None,
+    cell_size: tuple[float, float],
+    dst_path: Path,
 ):
-    if scale is not None and buffer_units is not None:
-        tiles['geometry'] = tiles.buffer(scale * buffer_units)
     paths = os.fspath(PROJ_ROOT) + '/' + tiles['path'].str.lstrip('/')
     assert mode in ('train', 'test')
-    dst_path = INTERIM_DATA_DIR / f'{suffix}_{mode}_merged_dem.tif'
-    # if dst_path.exists():
-    #     return dst_path
+    dst_path.unlink(missing_ok=True)
     rasterio.merge.merge(
         paths.values,
+        res=cell_size,
+        resampling=Resampling.bilinear,
         dst_path=dst_path,
         dst_kwds={'crs': rasterio.crs.CRS.from_epsg(EPSG)},
+        dtype=np.float32,
+        # precision=2,
     )
     return dst_path
 
@@ -97,13 +323,13 @@ def get_merged_dem(
 def get_merged_dems(
     tiles: gpd.GeoDataFrame, fishnet: Fishnet, mode: Mode, workers: int = 4
 ) -> list[Path]:
-    cell_size = get_dem_cell_size(tiles.iloc[0])
+    cell_size = get_dem_cell_size(PROJ_ROOT / tiles.iloc[0].path)
     dem_boundaries = fishnet.generate_grid(buffer=max(cell_size))
 
     def handle_bounds(bounds: tuple[int, Polygon]) -> Path:
         index, polygon = bounds
         subset = tiles[tiles.intersects(polygon)]
-        return get_merged_dem(subset, mode, str(index))
+        return get_merged_dem(subset, mode, str(index), cell_size)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
         return list(
@@ -143,7 +369,7 @@ class GeomorphometricalVariable(Enum):
     FLOW_PATH_LENGTH = 'fpl'
     SLOPE_LENGTH = 'spl'
     CELL_BALANCE = 'cbl'
-    SAGA_WETNESS_INDEX = 'twi'
+    TOPOGRAPHIC_WETNESS_INDEX = 'twi'
     WIND_EXPOSITION_INDEX = 'wind'
 
 
@@ -229,15 +455,20 @@ class TerrainAnalysis:
     def __init__(
         self,
         dem: PathLike,
-        saga: SAGA,
         mode: Mode,
+        saga: SAGA,
         verbose: bool,
         infer_obj_type: bool,
         ignore_stderr: bool,
+        dem_edge: PathLike | None = None,
     ):
         self.dem = Path(dem)
-        self.saga = saga
+        self.dem_edge = Path(dem_edge) if dem_edge is not None else None
+        assert self.dem.is_relative_to(INTERIM_DATA_DIR)
+        if self.dem_edge:
+            assert self.dem_edge.is_relative_to(INTERIM_DATA_DIR)
         self.mode = mode
+        self.saga = saga
         self.verbose = verbose
         self.infer_obj_type = infer_obj_type
         self.ignore_stderr = ignore_stderr
@@ -248,8 +479,8 @@ class TerrainAnalysis:
             self.topographic_openness,
             self.slope_aspect_curvature,
             self.real_surface_area,
-            # self.wind_exposition_index,
-            # self.topographic_position_index,
+            self.wind_exposition_index,
+            self.topographic_position_index,
             self.valley_depth,
             self.terrain_ruggedness_index,
             self.vector_ruggedness_measure,
@@ -258,7 +489,7 @@ class TerrainAnalysis:
             self.flow_path_length,
             self.slope_length,
             self.cell_balance,
-            self.saga_wetness_index,
+            self.topographic_wetness_index,
         ]
 
     def execute(self) -> c.Generator[tuple[str, ToolOutput]]:
@@ -281,23 +512,23 @@ class TerrainAnalysis:
     def hydrology(self) -> Library:
         return self.saga / 'ta_hydrology'
 
-    def get_out_path(self, variable: GeomorphometricalVariable) -> Path:
-        out_path = (
-            PROCESSED_DATA_DIR
-            / f'{self.mode}_tiles'
-            / variable.value
-            / self.dem.name
-        )
-        os.makedirs(out_path.parent, exist_ok=True)
-        return out_path
+    def get_out_path(
+        self, dem: Path, variable: GeomorphometricalVariable
+    ) -> Path:
+        parts = list(dem.parts)
+        parts[-4] = variable.value
+        path = Path(*parts)
+        os.makedirs(path.parent, exist_ok=True)
+        return path
 
     def index_of_convergence(self) -> ToolOutput:
         """Requires 1 or 2 units of buffer depending on the neighbours parameter."""
         tool = self.morphometry / 'Convergence Index'
+        dem = self.dem_edge if self.dem_edge is not None else self.dem
         return tool.execute(
-            elevation=self.dem,
+            elevation=dem,
             result=self.get_out_path(
-                GeomorphometricalVariable.INDEX_OF_CONVERGENCE
+                dem, GeomorphometricalVariable.INDEX_OF_CONVERGENCE
             ),
             method=0,
             neighbours=0,
@@ -309,10 +540,12 @@ class TerrainAnalysis:
     def terrain_surface_convexity(self) -> ToolOutput:
         """Requires 1 unit of buffer."""
         tool = self.morphometry / 'Terrain Surface Convexity'
+        dem = self.dem_edge if self.dem_edge is not None else self.dem
         return tool.execute(
-            dem=self.dem,
+            dem=dem,
             convexity=self.get_out_path(
-                GeomorphometricalVariable.TERRAIN_SURFACE_CONVEXITY
+                dem,
+                GeomorphometricalVariable.TERRAIN_SURFACE_CONVEXITY,
             ),
             kernel=0,
             type=0,
@@ -332,7 +565,9 @@ class TerrainAnalysis:
         return tool.execute(
             elevation=self.dem,
             method='5',
-            shade=self.get_out_path(GeomorphometricalVariable.HILLSHADE),
+            shade=self.get_out_path(
+                self.dem, GeomorphometricalVariable.HILLSHADE
+            ),
             verbose=self.verbose,
             infer_obj_type=self.infer_obj_type,
             ignore_stderr=self.ignore_stderr,
@@ -344,16 +579,18 @@ class TerrainAnalysis:
         return tool.execute(
             dem=self.dem,
             pos=self.get_out_path(
-                GeomorphometricalVariable.POSITIVE_TOPOGRAPHIC_OPENNESS
+                self.dem,
+                GeomorphometricalVariable.POSITIVE_TOPOGRAPHIC_OPENNESS,
             ),
             neg=self.get_out_path(
-                GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS
+                self.dem,
+                GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
             ),
             radius=100,
             directions=1,
             direction=315,
             ndirs=8,
-            method=1,
+            method=0,
             dlevel=3.0,
             unit=0,
             nadir=1,
@@ -367,34 +604,40 @@ class TerrainAnalysis:
 
         TODO: Add Northness and Eastness"""
         tool = self.morphometry / 'Slope, Aspect, Curvature'
+        dem = self.dem_edge if self.dem_edge is not None else self.dem
         return tool.execute(
-            elevation=self.dem,
-            slope=self.get_out_path(GeomorphometricalVariable.SLOPE),
+            elevation=dem,
+            slope=self.get_out_path(dem, GeomorphometricalVariable.SLOPE),
             c_gene=self.get_out_path(
-                GeomorphometricalVariable.GENERAL_CURVATURE
+                dem, GeomorphometricalVariable.GENERAL_CURVATURE
             ),
             c_prof=self.get_out_path(
-                GeomorphometricalVariable.PROFILE_CURVATURE
+                dem, GeomorphometricalVariable.PROFILE_CURVATURE
             ),
-            c_plan=self.get_out_path(GeomorphometricalVariable.PLAN_CURVATURE),
+            c_plan=self.get_out_path(
+                dem, GeomorphometricalVariable.PLAN_CURVATURE
+            ),
             c_tang=self.get_out_path(
-                GeomorphometricalVariable.TANGENTIAL_CURVATURE
+                dem, GeomorphometricalVariable.TANGENTIAL_CURVATURE
             ),
             c_long=self.get_out_path(
-                GeomorphometricalVariable.LONGITUDINAL_CURVATURE
+                dem, GeomorphometricalVariable.LONGITUDINAL_CURVATURE
             ),
             c_cros=self.get_out_path(
-                GeomorphometricalVariable.CROSS_SECTIONAL_CURVATURE
+                dem,
+                GeomorphometricalVariable.CROSS_SECTIONAL_CURVATURE,
             ),
             c_mini=self.get_out_path(
-                GeomorphometricalVariable.MINIMAL_CURVATURE
+                dem, GeomorphometricalVariable.MINIMAL_CURVATURE
             ),
             c_maxi=self.get_out_path(
-                GeomorphometricalVariable.MAXIMAL_CURVATURE
+                dem, GeomorphometricalVariable.MAXIMAL_CURVATURE
             ),
-            c_tota=self.get_out_path(GeomorphometricalVariable.TOTAL_CURVATURE),
+            c_tota=self.get_out_path(
+                dem, GeomorphometricalVariable.TOTAL_CURVATURE
+            ),
             c_roto=self.get_out_path(
-                GeomorphometricalVariable.FLOW_LINE_CURVATURE
+                dem, GeomorphometricalVariable.FLOW_LINE_CURVATURE
             ),
             method=6,
             unit_slope=0,
@@ -408,7 +651,9 @@ class TerrainAnalysis:
         tool = self.morphometry / 'Real Surface Area'
         return tool.execute(
             dem=self.dem,
-            area=self.get_out_path(GeomorphometricalVariable.REAL_SURFACE_AREA),
+            area=self.get_out_path(
+                self.dem, GeomorphometricalVariable.REAL_SURFACE_AREA
+            ),
             verbose=self.verbose,
             infer_obj_type=self.infer_obj_type,
             ignore_stderr=self.ignore_stderr,
@@ -419,7 +664,7 @@ class TerrainAnalysis:
         return tool.execute(
             dem=self.dem,
             exposition=self.get_out_path(
-                GeomorphometricalVariable.WIND_EXPOSITION_INDEX
+                self.dem, GeomorphometricalVariable.WIND_EXPOSITION_INDEX
             ),
             maxdist=0.1,
             step=90,
@@ -437,7 +682,7 @@ class TerrainAnalysis:
         return tool.execute(
             dem=self.dem,
             tpi=self.get_out_path(
-                GeomorphometricalVariable.TOPOGRAPHIC_POSITION_INDEX
+                self.dem, GeomorphometricalVariable.TOPOGRAPHIC_POSITION_INDEX
             ),
             standard=0,
             dw_weighting=0,
@@ -453,7 +698,7 @@ class TerrainAnalysis:
         return tool.execute(
             elevation=self.dem,
             valley_depth=self.get_out_path(
-                GeomorphometricalVariable.VALLEY_DEPTH
+                self.dem, GeomorphometricalVariable.VALLEY_DEPTH
             ),
             threshold=1,
             maxiter=0,
@@ -467,10 +712,12 @@ class TerrainAnalysis:
     def terrain_ruggedness_index(self) -> ToolOutput:
         """Uses radius units of buffer."""
         tool = self.morphometry / 'Terrain Ruggedness Index (TRI)'
+        dem = self.dem_edge if self.dem_edge is not None else self.dem
         return tool.execute(
-            dem=self.dem,
+            dem=dem,
             tri=self.get_out_path(
-                GeomorphometricalVariable.TERRAIN_RUGGEDNESS_INDEX
+                dem,
+                GeomorphometricalVariable.TERRAIN_RUGGEDNESS_INDEX,
             ),
             mode=1,
             radius=1,
@@ -485,10 +732,12 @@ class TerrainAnalysis:
     def vector_ruggedness_measure(self) -> ToolOutput:
         """Uses radius units of buffer."""
         tool = self.morphometry / 'Vector Ruggedness Measure (VRM)'
+        dem = self.dem_edge if self.dem_edge is not None else self.dem
         return tool.execute(
-            dem=self.dem,
+            dem=dem,
             vrm=self.get_out_path(
-                GeomorphometricalVariable.VECTOR_RUGGEDNESS_MEASURE
+                dem,
+                GeomorphometricalVariable.VECTOR_RUGGEDNESS_MEASURE,
             ),
             mode=1,
             radius=1,
@@ -503,20 +752,24 @@ class TerrainAnalysis:
     def upslope_and_downslope_curvature(self) -> ToolOutput:
         """Uses one unit of buffer."""
         tool = self.morphometry / 'Upslope and Downslope Curvature'
+        dem = self.dem_edge if self.dem_edge is not None else self.dem
         return tool.execute(
-            dem=self.dem,
+            dem=dem,
             c_local=self.get_out_path(
-                GeomorphometricalVariable.LOCAL_CURVATURE
+                dem, GeomorphometricalVariable.LOCAL_CURVATURE
             ),
-            c_up=self.get_out_path(GeomorphometricalVariable.UPSLOPE_CURVATURE),
+            c_up=self.get_out_path(
+                dem, GeomorphometricalVariable.UPSLOPE_CURVATURE
+            ),
             c_up_local=self.get_out_path(
-                GeomorphometricalVariable.LOCAL_UPSLOPE_CURVATURE
+                dem, GeomorphometricalVariable.LOCAL_UPSLOPE_CURVATURE
             ),
             c_down=self.get_out_path(
-                GeomorphometricalVariable.DOWNSLOPE_CURVATURE
+                dem, GeomorphometricalVariable.DOWNSLOPE_CURVATURE
             ),
             c_down_local=self.get_out_path(
-                GeomorphometricalVariable.LOCAL_DOWNSLOPE_CURVATURE
+                dem,
+                GeomorphometricalVariable.LOCAL_DOWNSLOPE_CURVATURE,
             ),
             weighting=0.5,
             verbose=self.verbose,
@@ -528,7 +781,9 @@ class TerrainAnalysis:
         tool = self.hydrology / 'Flow Accumulation (Parallelizable)'
         return tool.execute(
             dem=self.dem,
-            flow=self.get_out_path(GeomorphometricalVariable.FLOW_ACCUMULATION),
+            flow=self.get_out_path(
+                self.dem, GeomorphometricalVariable.FLOW_ACCUMULATION
+            ),
             update=0,
             method=2,
             convergence=1.1,
@@ -543,7 +798,7 @@ class TerrainAnalysis:
             elevation=self.dem,
             # seed=None,
             length=self.get_out_path(
-                GeomorphometricalVariable.FLOW_PATH_LENGTH
+                self.dem, GeomorphometricalVariable.FLOW_PATH_LENGTH
             ),
             seeds_only=0,
             method=1,
@@ -557,7 +812,9 @@ class TerrainAnalysis:
         tool = self.hydrology / 'Slope Length'
         return tool.execute(
             dem=self.dem,
-            length=self.get_out_path(GeomorphometricalVariable.SLOPE_LENGTH),
+            length=self.get_out_path(
+                self.dem, GeomorphometricalVariable.SLOPE_LENGTH
+            ),
             verbose=self.verbose,
             infer_obj_type=self.infer_obj_type,
             ignore_stderr=self.ignore_stderr,
@@ -569,116 +826,128 @@ class TerrainAnalysis:
             dem=self.dem,
             # weights=None,
             weights_default=1,
-            balance=self.get_out_path(GeomorphometricalVariable.CELL_BALANCE),
+            balance=self.get_out_path(
+                self.dem, GeomorphometricalVariable.CELL_BALANCE
+            ),
             method=1,
             verbose=self.verbose,
             infer_obj_type=self.infer_obj_type,
             ignore_stderr=self.ignore_stderr,
         )
 
-    def saga_wetness_index(self) -> ToolOutput:
-        tool = self.hydrology / 'SAGA Wetness Index'
+    def topographic_wetness_index(self) -> ToolOutput:
+        tool = self.hydrology / 'twi'
         return tool.execute(
             dem=self.dem,
-            # weight=None,
-            # area=None,
-            # slope=None,
-            # area_mod=None,
-            twi=self.get_out_path(GeomorphometricalVariable.SAGA_WETNESS_INDEX),
-            suction=10,
-            area_type=2,
-            slope_type=1,
-            slope_min=0,
-            slope_off=0.1,
-            slope_weight=1,
-            verbose=self.verbose,
-            infer_obj_type=self.infer_obj_type,
-            ignore_stderr=self.ignore_stderr,
+            twi=self.get_out_path(
+                self.dem, GeomorphometricalVariable.TOPOGRAPHIC_WETNESS_INDEX
+            ),
+            flow_method=0,
         )
 
 
-PROCESSED = 0
-
-
-def handle_tile(attributes: dict[str, t.Any]):
-    global PROCESSED
-    saga = SAGA('saga_cmd', version=Version(9, 8, 0))
-    path = PROJ_ROOT / attributes['path']
-    assert path.exists(), 'DEM path does not exist.'
-    terrain_analysis = TerrainAnalysis(
-        path,
-        saga,
-        attributes['mode'],
-        verbose=False,
-        infer_obj_type=False,
-        ignore_stderr=True,
+def handle_tile(
+    tile_path: str,
+    tiles: RasterTiles,
+    tiles_with_overlap: RasterTiles,
+    saga: SAGA,
+    mode: Mode,
+):
+    tile = tiles.tiles[tiles.tiles['path'] == tile_path].iloc[0].path
+    overlap_tile = (
+        tiles_with_overlap.tiles[tiles_with_overlap.tiles['path'] == tile]
+        .iloc[0]
+        .path
+    )
+    tile_path = tiles.parent_dir / tile
+    overlap_tile_path = tiles_with_overlap.parent_dir / overlap_tile
+    terrain_analysis = list(
+        TerrainAnalysis(
+            tile_path,
+            dem_edge=overlap_tile_path,
+            mode=mode,
+            saga=saga,
+            verbose=False,
+            infer_obj_type=False,
+            ignore_stderr=False,
+        ).execute()
     )
 
-    for tool in terrain_analysis.execute():
-        if tool[1].stderr is not None:
-            print(
-                'Failed for', path, 'tool name', tool[0], '\n', tool[1].stderr
-            )
-    PROCESSED += 1
-    print('Processed', path, 'Total count:', PROCESSED)
-    return terrain_analysis
+
+def handle_tiles(
+    tiles: RasterTiles, tiles_with_overlap: RasterTiles, mode: Mode
+):
+    saga = SAGA('saga_cmd', version=Version(9, 8, 0))
+    # terrain_analysis =
+    #     TerrainAnalysis(
+    #         dem,
+    #         mode=mode,
+    #         saga=saga,
+    #         verbose=False,
+    #         infer_obj_type=False,
+    #         ignore_stderr=False,
+    #     ).execute()
+
+    # for tile in tiles.tiles['path']:
+    #     handle_tile(tiles, tiles_with_overlap, saga, tile, mode)
+
+    func = functools.partial(
+        handle_tile,
+        tiles=tiles,
+        tiles_with_overlap=tiles_with_overlap,
+        saga=saga,
+        mode=mode,
+    )
+    with concurrent.futures.ProcessPoolExecutor(max_workers=50) as executor:
+        results = executor.map(func, tiles.tiles['path'])
+
+    # for tool in terrain_analysis.execute():
+    #     if tool[1].stderr is not None:
+    #         print(
+    #             'Failed for', path, 'tool name', tool[0], '\n', tool[1].stderr
+    #         )
+    # print('Processed', path)
+    # return terrain_analysis
 
 
-def get_dem_cell_size(tile: pd.Series) -> tuple[float, float]:
-    dem_path = PROJ_ROOT / tile.path
-    with rasterio.open(dem_path, mode='r') as raster:
-        x, y = raster.res
+def get_dem_cell_size(raster: Path) -> tuple[float, float]:
+    with rasterio.open(raster, mode='r') as r:
+        x, y = r.res
     return (x, y)
 
 
-def main():
+def compute_train_tiles():
     tiles = t.cast(
         gpd.GeoDataFrame, gpd.read_file(RAW_DATA_DIR / 'dem_tiles.geojson')
     ).dropna(subset='mode')
-    train_tiles = t.cast(
-        gpd.GeoDataFrame, tiles[tiles.loc[:, 'mode'] == 'train']
+    train_tiles = RasterTiles(
+        tiles[tiles.loc[:, 'mode'] == 'train'], DEM_TILES
+    ).resample(TRAIN_TILES / 'dem')
+    train_tiles_with_overlap = train_tiles.add_overlap(1)
+    train_tiles_with_overlap.tiles.to_file(
+        INTERIM_DATA_DIR / 'overlap_tiles.shp'
     )
-    test_tiles = t.cast(gpd.GeoDataFrame, tiles[tiles.loc[:, 'mode'] == 'test'])
+    handle_tiles(train_tiles, train_tiles_with_overlap, 'train')
 
-    train_tiles_limit = box(
-        *t.cast(Polygon, train_tiles.dissolve().geometry.iloc[0]).bounds
+
+def compute_test_tiles():
+    tiles = t.cast(
+        gpd.GeoDataFrame, gpd.read_file(RAW_DATA_DIR / 'dem_tiles.geojson')
+    ).dropna(subset='mode')
+    test_tiles = RasterTiles(
+        tiles[tiles.loc[:, 'mode'] == 'test'], DEM_TILES
+    ).resample(TEST_TILES / 'dem')
+    test_tiles_with_overlap = test_tiles.add_overlap(1)
+    test_tiles_with_overlap.tiles.to_file(
+        INTERIM_DATA_DIR / 'overlap_tiles.shp'
     )
+    handle_tiles(test_tiles, test_tiles_with_overlap, 'test')
 
-    fishnet = Fishnet(train_tiles_limit, 4, 4)
-    # gpd.GeoDataFrame(geometry=fishnet).to_file(RAW_DATA_DIR / 'fishnet.shp')
-    start = time.perf_counter()
-    merged_dems = get_merged_dems(train_tiles, fishnet, 'train')
-    end = time.perf_counter()
-    print('Execution duration:', end - start)
-    breakpoint()
 
-    # train_dem = get_merged_dem(
-    #     train_tiles,
-    #     scale=10,
-    #     buffer_units=1,
-    # )
-    # train_dem = get_merged_dem(
-    #     test_tiles,
-    #     scale=10,
-    #     buffer_units=1,
-    # )
-    # train_terrain_analysis = TerrainAnalysis(
-    #     train_dem, saga, mode='train', verbose=True
-    # )
-    # test_terrain_analysis = TerrainAnalysis(
-    #     train_dem, saga, mode='test', verbose=True
-    # )
-    with concurrent.futures.ProcessPoolExecutor(max_workers=100) as executor:
-        results = executor.map(handle_tile, tiles.to_dict('index').values())
-
-    breakpoint()
-
-    # def handle_terrain_analysis(terrain_analysis: TerrainAnalysis):
-    #     print(f'Executing tools for {terrain_analysis.mode=}')
-    #     list(terrain_analysis.execute())
-
-    # handle_terrain_analysis(train_terrain_analysis)
-    # handle_terrain_analysis(test_terrain_analysis)
+def main(tile_size: tuple[int, int] = (100, 100)):
+    with concurrent.futures.ProcessPoolExecutor(max_workers=2) as executor:
+        train = executor.submit(compute_train_tiles)
+        test = executor.submit(compute_test_tiles)
 
 
 if __name__ == '__main__':
