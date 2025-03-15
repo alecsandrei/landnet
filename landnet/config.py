@@ -11,13 +11,17 @@ INTERIM_DATA_DIR = DATA_DIR / 'interim'
 PROCESSED_DATA_DIR = DATA_DIR / 'processed'
 EXTERNAL_DATA_DIR = DATA_DIR / 'external'
 DEM_TILES = EXTERNAL_DATA_DIR / 'DEM'
-TRAIN_TILES = PROCESSED_DATA_DIR / 'train_tiles'
-TEST_TILES = PROCESSED_DATA_DIR / 'test_tiles'
+TRAIN_TILES = INTERIM_DATA_DIR / 'train_tiles'
+TEST_TILES = INTERIM_DATA_DIR / 'test_tiles'
+GRIDS = INTERIM_DATA_DIR / 'computed_grids'
 
 MODELS_DIR = PROJ_ROOT / 'models'
 
 REPORTS_DIR = PROJ_ROOT / 'reports'
 FIGURES_DIR = REPORTS_DIR / 'figures'
+
+LOGGING_DIR = PROJ_ROOT / 'logging'
+LOGGING_CONFIG = LOGGING_DIR / 'config.json'
 
 # GIS configs
 EPSG = 3844

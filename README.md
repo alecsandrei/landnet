@@ -36,6 +36,8 @@ A repository containing all the code used in my master's thesis, where I'll appl
 │   │
 │   └── plots.py                <- Code to create visualizations
 │
+├── logging            <- Logging configs and files
+│
 ├── models             <- Trained and serialized models, model predictions, or model summaries
 │
 ├── notebooks          <- Jupyter notebooks
