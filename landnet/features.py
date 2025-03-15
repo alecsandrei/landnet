@@ -3,9 +3,10 @@ from __future__ import annotations
 import collections.abc as c
 import concurrent.futures
 import functools
+import logging
 import os
 import typing as t
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToTensor
 from landnet.config import (
     DEM_TILES,
     EPSG,
+    GRIDS,
     INTERIM_DATA_DIR,
     NODATA,
     PROJ_ROOT,
@@ -40,6 +42,7 @@ from landnet.dataset import Feature, geojson_to_gdf, get_empty_geojson
 if t.TYPE_CHECKING:
     from PySAGA_cmd.saga import Library, ToolOutput
 
+logger = logging.getLogger(__name__)
 
 PathLike = os.PathLike | str
 LandslideTile = int
@@ -87,7 +90,7 @@ def get_tiles(
 
 @dataclass
 class RasterTiles:
-    tiles: gpd.GeoDataFrame
+    tiles: gpd.GeoDataFrame = field(repr=False)
     parent_dir: Path
 
     @classmethod
@@ -294,11 +297,6 @@ class Fishnet:
         return grid
 
 
-def merge_rasters(datasets, **kwargs):
-    """Wrapper for rasterio.merge.merge"""
-    return rasterio.merge.merge(datasets, **kwargs)
-
-
 def get_merged_dem(
     tiles: gpd.GeoDataFrame,
     mode: Mode,
@@ -318,23 +316,6 @@ def get_merged_dem(
         # precision=2,
     )
     return dst_path
-
-
-def get_merged_dems(
-    tiles: gpd.GeoDataFrame, fishnet: Fishnet, mode: Mode, workers: int = 4
-) -> list[Path]:
-    cell_size = get_dem_cell_size(PROJ_ROOT / tiles.iloc[0].path)
-    dem_boundaries = fishnet.generate_grid(buffer=max(cell_size))
-
-    def handle_bounds(bounds: tuple[int, Polygon]) -> Path:
-        index, polygon = bounds
-        subset = tiles[tiles.intersects(polygon)]
-        return get_merged_dem(subset, mode, str(index), cell_size)
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-        return list(
-            executor.map(handle_bounds, enumerate(dem_boundaries, start=1))
-        )
 
 
 class GeomorphometricalVariable(Enum):
@@ -451,6 +432,12 @@ class LandslideImageFolder(ImageFolder):
                     dir_.rmdir()
 
 
+def get_dem_cell_size(raster: Path) -> tuple[float, float]:
+    with rasterio.open(raster, mode='r') as r:
+        x, y = r.res
+    return (x, y)
+
+
 class TerrainAnalysis:
     def __init__(
         self,
@@ -515,11 +502,12 @@ class TerrainAnalysis:
     def get_out_path(
         self, dem: Path, variable: GeomorphometricalVariable
     ) -> Path:
-        parts = list(dem.parts)
-        parts[-4] = variable.value
-        path = Path(*parts)
-        os.makedirs(path.parent, exist_ok=True)
-        return path
+        # parts = list(dem.parts)
+        # parts[-4] = variable.value
+        # path = Path(*parts)
+        # os.makedirs(path.parent, exist_ok=True)
+        # return path
+        return (GRIDS / self.mode / variable.value).with_suffix('.tif')
 
     def index_of_convergence(self) -> ToolOutput:
         """Requires 1 or 2 units of buffer depending on the neighbours parameter."""
@@ -852,7 +840,7 @@ def handle_tile(
     tiles_with_overlap: RasterTiles,
     saga: SAGA,
     mode: Mode,
-):
+) -> list[tuple[str, ToolOutput]]:
     tile = tiles.tiles[tiles.tiles['path'] == tile_path].iloc[0].path
     overlap_tile = (
         tiles_with_overlap.tiles[tiles_with_overlap.tiles['path'] == tile]
@@ -861,7 +849,7 @@ def handle_tile(
     )
     tile_path = tiles.parent_dir / tile
     overlap_tile_path = tiles_with_overlap.parent_dir / overlap_tile
-    terrain_analysis = list(
+    return list(
         TerrainAnalysis(
             tile_path,
             dem_edge=overlap_tile_path,
@@ -874,23 +862,26 @@ def handle_tile(
     )
 
 
+def handle_dem(
+    dem: Path,
+    saga: SAGA,
+    mode: Mode,
+):
+    for tool_name, _ in TerrainAnalysis(
+        dem,
+        mode=mode,
+        saga=saga,
+        verbose=False,
+        infer_obj_type=False,
+        ignore_stderr=False,
+    ).execute():
+        logger.info('%s finished executing for %r' % (tool_name, mode))
+
+
 def handle_tiles(
     tiles: RasterTiles, tiles_with_overlap: RasterTiles, mode: Mode
 ):
     saga = SAGA('saga_cmd', version=Version(9, 8, 0))
-    # terrain_analysis =
-    #     TerrainAnalysis(
-    #         dem,
-    #         mode=mode,
-    #         saga=saga,
-    #         verbose=False,
-    #         infer_obj_type=False,
-    #         ignore_stderr=False,
-    #     ).execute()
-
-    # for tile in tiles.tiles['path']:
-    #     handle_tile(tiles, tiles_with_overlap, saga, tile, mode)
-
     func = functools.partial(
         handle_tile,
         tiles=tiles,
@@ -898,56 +889,29 @@ def handle_tiles(
         saga=saga,
         mode=mode,
     )
-    with concurrent.futures.ProcessPoolExecutor(max_workers=50) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=25) as executor:
         results = executor.map(func, tiles.tiles['path'])
-
-    # for tool in terrain_analysis.execute():
-    #     if tool[1].stderr is not None:
-    #         print(
-    #             'Failed for', path, 'tool name', tool[0], '\n', tool[1].stderr
-    #         )
-    # print('Processed', path)
-    # return terrain_analysis
+    return results
 
 
-def get_dem_cell_size(raster: Path) -> tuple[float, float]:
-    with rasterio.open(raster, mode='r') as r:
-        x, y = r.res
-    return (x, y)
-
-
-def compute_train_tiles():
+def compute_grids(mode: Mode, saga: SAGA):
+    tiles_dir = TRAIN_TILES if mode == 'train' else TEST_TILES
     tiles = t.cast(
         gpd.GeoDataFrame, gpd.read_file(RAW_DATA_DIR / 'dem_tiles.geojson')
     ).dropna(subset='mode')
-    train_tiles = RasterTiles(
-        tiles[tiles.loc[:, 'mode'] == 'train'], DEM_TILES
-    ).resample(TRAIN_TILES / 'dem')
-    train_tiles_with_overlap = train_tiles.add_overlap(1)
-    train_tiles_with_overlap.tiles.to_file(
-        INTERIM_DATA_DIR / 'overlap_tiles.shp'
-    )
-    handle_tiles(train_tiles, train_tiles_with_overlap, 'train')
-
-
-def compute_test_tiles():
-    tiles = t.cast(
-        gpd.GeoDataFrame, gpd.read_file(RAW_DATA_DIR / 'dem_tiles.geojson')
-    ).dropna(subset='mode')
-    test_tiles = RasterTiles(
-        tiles[tiles.loc[:, 'mode'] == 'test'], DEM_TILES
-    ).resample(TEST_TILES / 'dem')
-    test_tiles_with_overlap = test_tiles.add_overlap(1)
-    test_tiles_with_overlap.tiles.to_file(
-        INTERIM_DATA_DIR / 'overlap_tiles.shp'
-    )
-    handle_tiles(test_tiles, test_tiles_with_overlap, 'test')
+    os.makedirs((GRIDS / mode), exist_ok=True)
+    raster_tiles = RasterTiles(tiles[tiles.loc[:, 'mode'] == mode], DEM_TILES)
+    logger.debug('Resampling %r for %r' % (raster_tiles, mode))
+    resampled = raster_tiles.resample(tiles_dir / 'dem')
+    logger.debug('Merging %r for %r' % (raster_tiles, mode))
+    merged = resampled.merge(GRIDS / mode / 'dem.tif')
+    handle_dem(merged, saga, mode)
 
 
 def main(tile_size: tuple[int, int] = (100, 100)):
-    with concurrent.futures.ProcessPoolExecutor(max_workers=2) as executor:
-        train = executor.submit(compute_train_tiles)
-        test = executor.submit(compute_test_tiles)
+    saga = SAGA('saga_cmd', Version(9, 8, 0))
+    compute_grids('train', saga)
+    compute_grids('test', saga)
 
 
 if __name__ == '__main__':
