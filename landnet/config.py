@@ -22,7 +22,8 @@ FIGURES_DIR = REPORTS_DIR / 'figures'
 # GIS configs
 EPSG = 3844
 SAGA_CMD = None  # could be configures to specify path to saga_cmd
-
+RASTER_CELL_SIZE = (5, 5)  # meters
+NODATA = -32767
 # Model configs
 LANDSLIDE_DENSITY_THRESHOLD = float(
     os.getenv('LANDSLIDE_DENSITY_THRESHOLD', 0.05)
