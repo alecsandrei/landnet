@@ -3,6 +3,7 @@ from __future__ import annotations
 import collections.abc as c
 import concurrent.futures
 import functools
+import json
 import logging
 import os
 import typing as t
@@ -16,13 +17,15 @@ import rasterio.crs
 import rasterio.mask
 import rasterio.merge
 import rasterio.warp
+import shapely
+from PIL import Image
 from PySAGA_cmd import SAGA
 from PySAGA_cmd.saga import Version
 from rasterio import DatasetReader, windows
 from rasterio.enums import Resampling
 from rasterio.features import dataset_features
-from shapely import Polygon, box
-from torchvision.datasets import ImageFolder
+from shapely import MultiPolygon, Polygon, box
+from torchvision.datasets import VisionDataset
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToTensor
 
 from landnet.config import (
@@ -37,7 +40,12 @@ from landnet.config import (
     TEST_TILES,
     TRAIN_TILES,
 )
-from landnet.dataset import Feature, geojson_to_gdf, get_empty_geojson
+from landnet.dataset import (
+    Feature,
+    geojson_to_gdf,
+    get_empty_geojson,
+    read_landslide_shapes,
+)
 
 if t.TYPE_CHECKING:
     from PySAGA_cmd.saga import Library, ToolOutput
@@ -63,26 +71,17 @@ def get_tiles(
     xstep = tile_width
     ystep = tile_height
     for x in range(0, ncols + xstep, xstep):
-        if x >= ncols:
-            break
-        # if ncols - x <= overlap:
-        #     break
         if x != 0:
             x -= overlap
         width = tile_width + overlap * (2 if x != 0 else 1)
         if x + width > ncols:
-            x = ncols - width
+            break
         for y in range(0, nrows + ystep, ystep):
-            # print(x, y, nrows, ncols)
-            if y >= nrows:
-                break
-            # if nrows - y <= overlap:
-            #     break
             if y != 0:
                 y -= overlap
             height = tile_height + overlap * (2 if y != 0 else 1)
             if y + height > nrows:
-                y = nrows - height
+                break
             window = windows.Window(x, y, width, height)  # type: ignore
             transform = windows.transform(window, ds.transform)
             yield window, transform
@@ -94,9 +93,24 @@ class RasterTiles:
     parent_dir: Path
 
     @classmethod
-    def from_dir(cls, tiles_parent: Path, suffix: str = '.tif') -> t.Self:
+    def from_dir(
+        cls, tiles_parent: Path, mode: Mode, suffix: str = '.tif'
+    ) -> t.Self:
+        landslide_shapes = read_landslide_shapes(mode)
         geojson = get_empty_geojson()
         images = tiles_parent.rglob(f'*{suffix}')
+
+        def get_percentage_intersection(
+            feature: Polygon | MultiPolygon,
+        ) -> float:
+            intersection = landslide_shapes.intersection(feature).unary_union
+            intersection_area = (
+                intersection.area if not intersection.is_empty else 0
+            )
+            polygon_area = feature.area
+            if polygon_area == 0:
+                return 0
+            return intersection_area / polygon_area
 
         def process_feature(feature: dict[str, t.Any], path: Path) -> Feature:
             keys_to_remove = [
@@ -108,7 +122,14 @@ class RasterTiles:
             for k in keys_to_remove:
                 feature.pop(k)
             feature['properties'] = {
-                'path': path.relative_to(tiles_parent).as_posix()
+                'path': path.relative_to(tiles_parent).as_posix(),
+                'mode': mode,
+                'landslide_density': get_percentage_intersection(
+                    t.cast(
+                        Polygon | MultiPolygon,
+                        shapely.from_geojson(json.dumps(feature['geometry'])),
+                    )
+                ),
             }
             return t.cast(Feature, feature)
 
@@ -138,6 +159,7 @@ class RasterTiles:
         tile_size: tuple[Rows, Columns],
         overlap: int,
         out_dir: Path,
+        mode: Mode,
         suffix: str = '.tif',
     ) -> t.Self:
         with rasterio.open(raster) as src:
@@ -160,11 +182,12 @@ class RasterTiles:
 
                 with rasterio.open(out_filepath, 'w', **metadata) as dst:
                     dst.write(src.read(window=window))
-        return cls.from_dir(out_dir, suffix)
+        return cls.from_dir(out_dir, mode, suffix)
 
     def add_overlap(
         self,
         overlap: int,
+        mode: Mode,
         tile_size: tuple[Rows, Columns] = (100, 100),
     ) -> t.Self:
         merged = self.merge(self.parent_dir / 'merged.tif')
@@ -190,10 +213,13 @@ class RasterTiles:
                 os.makedirs(out_filepath.parent, exist_ok=True)
                 with rasterio.open(out_filepath, 'w', **metadata) as dst:
                     dst.write(src.read(window=window))
-        return self.from_dir(parent_dir)
+        return self.from_dir(parent_dir, mode)
 
     def resample(
-        self, out_dir: Path, resampling: Resampling = Resampling.bilinear
+        self,
+        out_dir: Path,
+        mode: Mode,
+        resampling: Resampling = Resampling.bilinear,
     ) -> t.Self:
         os.makedirs(out_dir, exist_ok=True)
         crs = rasterio.crs.CRS.from_epsg(EPSG)
@@ -250,7 +276,7 @@ class RasterTiles:
                 if isinstance(result, Exception):
                     raise result
 
-        return self.from_dir(out_dir)
+        return self.from_dir(out_dir, mode)
 
     def merge(self, out_file: Path) -> Path:
         paths = (
@@ -258,7 +284,7 @@ class RasterTiles:
             + '/'
             + self.tiles['path'].str.lstrip('/')
         )
-        # out_file.unlink(missing_ok=True)
+        out_file.unlink(missing_ok=True)
         rasterio.merge.merge(
             paths.values,
             res=RASTER_CELL_SIZE,
@@ -365,19 +391,9 @@ def get_default_transform():
     )
 
 
-def split_raster(
-    saga: SAGA, raster: PathLike, tile_size: tuple[int, int], out_dir: PathLike
-) -> ToolOutput:
-    tiling = saga / 'grid_tools' / 'Tiling'
-    return tiling.execute(
-        grid=raster,
-        tiles=out_dir,
-        tiles_save=1,
-        tiles_path=out_dir,
-        nx=tile_size[0],
-        ny=tile_size[1],
-        verbose=True,
-    )
+def get_default_loader(path: str) -> Image.Image:
+    with open(path, 'rb') as f:
+        return Image.open(f)
 
 
 class LandslideClass(Enum):
@@ -385,51 +401,53 @@ class LandslideClass(Enum):
     LANDSLIDE = auto()
 
 
-@dataclass
-class LandslideImageFolder(ImageFolder):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def get_tile_paths(self) -> TilePaths:
-        tiles = {}
-        for file in Path(self.root).rglob('*[0-9]*'):
-            tile = int(''.join(filter(str.isdigit, file.name)))
-            tiles[tile] = file
-        return tiles
-
-    def reclassify(
+class LandslideImageFolder(VisionDataset):
+    def __init__(
         self,
-        tiles: c.Mapping[LandslideTile, LandslideDensity],
-        threshold_percentage: float = 0.05,
+        raster_tiles: RasterTiles,
+        loader: c.Callable[[str], t.Any] = get_default_loader,
+        landslide_density_threshold: float = 0.05,
+        transforms: c.Callable | None = None,
+        transform: c.Callable | None = None,
+        target_transform: c.Callable | None = None,
     ) -> None:
-        tile_paths = self.get_tile_paths()
-        for tile, percentage in tiles.items():
-            path = tile_paths[tile]
-            if percentage >= threshold_percentage:
-                landslide_class = str(LandslideClass.LANDSLIDE.value)
-            else:
-                landslide_class = str(LandslideClass.NO_LANDSLIDE.value)
+        super().__init__(
+            raster_tiles.parent_dir, transforms, transform, target_transform
+        )
+        self.samples = self.make_dataset(
+            raster_tiles, landslide_density_threshold
+        )
+        self.loader = loader
 
-            if path.parent.name != landslide_class:
-                new_folder = path.parents[1] / landslide_class
-                new_folder.mkdir(exist_ok=True)
-                print(
-                    '{} renamed to {}, {}, {}'.format(
-                        path,
-                        new_folder / path.name,
-                        percentage,
-                        landslide_class,
-                    )
-                )
-                path.rename(new_folder / path.name)
-        self.remove_empty_folders(Path(self.root))
+    def __getitem__(self, index: int) -> tuple[t.Any, t.Any]:
+        path, target = self.samples[index]
+        sample = self.loader(path)
+        if self.transform is not None:
+            sample = self.transform(sample)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+        return sample, target
+
+    def __len__(self) -> int:
+        return len(self.samples)
 
     @staticmethod
-    def remove_empty_folders(path: Path) -> None:
-        for dir_ in path.iterdir():
-            if dir_.is_dir():
-                if not list(dir_.iterdir()):
-                    dir_.rmdir()
+    def make_dataset(
+        raster_tiles: RasterTiles,
+        landslide_density_threshold: float = 0.05,
+    ) -> list[tuple[str, int]]:
+        samples = []
+        for tile in raster_tiles.tiles.itertuples():
+            path = t.cast(str, tile.path)
+            density = t.cast(float, tile.landslide_density)
+            tile_path = raster_tiles.parent_dir / path
+            tile_class = (
+                LandslideClass.LANDSLIDE.value
+                if density >= landslide_density_threshold
+                else LandslideClass.NO_LANDSLIDE.value
+            )
+            samples.append((tile_path.as_posix(), tile_class))
+        return samples
 
 
 def get_dem_cell_size(raster: Path) -> tuple[float, float]:
