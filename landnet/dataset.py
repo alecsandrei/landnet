@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import collections.abc as c
-import json
 import os
 import typing as t
-from pathlib import Path
 
-import rasterio
-from rasterio.features import dataset_features
+import geopandas as gpd
 
-from landnet.config import DEM_TILES, EPSG, INTERIM_DATA_DIR
+from landnet.config import EPSG, RAW_DATA_DIR
 
 PathLike = os.PathLike | str
 Mode = t.Literal['train', 'test']
@@ -23,22 +19,31 @@ class TileProperties(t.TypedDict):
 
 class Geometry(t.TypedDict):
     type: str
-    coordinates: c.Sequence
+    coordinates: list
 
 
 class Feature(t.TypedDict):
     type: str
     properties: TileProperties
     geometry: Geometry
-    bbox: t.NotRequired[c.Sequence[float]]
+    bbox: t.NotRequired[list[float]]
+
+
+class CRSProperties(t.TypedDict):
+    name: str
+
+
+class CRS(t.TypedDict):
+    type: str
+    properties: CRSProperties
 
 
 class GeoJSON(t.TypedDict):
     """The GeoJSON representation of the DEM tile bounds."""
 
     type: str
-    crs: t.NotRequired[c.Mapping[str, t.Any]]
-    features: c.MutableSequence[Feature]
+    crs: t.NotRequired[CRS]
+    features: list[Feature]
 
 
 def get_empty_geojson() -> GeoJSON:
