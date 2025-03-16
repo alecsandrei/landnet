@@ -54,42 +54,15 @@ def get_empty_geojson() -> GeoJSON:
     }
 
 
-def create_tile_bounds_geojson() -> GeoJSON:
-    geojson = get_empty_geojson()
-    images = DEM_TILES.rglob('*.tif')
+def geojson_to_gdf(geojson: GeoJSON) -> gpd.GeoDataFrame:
+    crs = None
+    if (crs_dict := geojson.get('crs', None)) is not None:
+        crs = crs_dict['properties']['name']
+    return gpd.GeoDataFrame.from_features(geojson['features'], crs=crs)
 
-    def process_feature(feature: dict[str, t.Any], path: Path) -> Feature:
-        keys_to_remove = [
-            k
-            for k in feature
-            if k not in Feature.__required_keys__
-            and k not in Feature.__optional_keys__
-        ]
-        for k in keys_to_remove:
-            feature.pop(k)
-        feature['properties'] = {
-            'path': f'{path.parents[1].stem}/{path.parents[0].stem}/{path.name}'
-        }
-        return t.cast(Feature, feature)
 
-    def get_features(tif: Path) -> list[Feature]:
-        with rasterio.open(tif) as raster:
-            features = [
-                process_feature(feature, tif)
-                for feature in dataset_features(
-                    raster,
-                    bidx=1,
-                    as_mask=True,
-                    geographic=False,
-                    band=False,
-                )
-            ]
-
-        return features
-
-    for image in list(images):
-        geojson['features'].extend(get_features(image))
-    tile_bounds = INTERIM_DATA_DIR / 'tiles.geojson'
-    with tile_bounds.open(mode='w') as file:
-        json.dump(geojson, file, indent=2)
-    return geojson
+def read_landslide_shapes(mode: Mode) -> gpd.GeoSeries:
+    return gpd.read_file(
+        RAW_DATA_DIR / 'shapes.gpkg',
+        layer='landslides_train' if mode == 'train' else 'landslides_test',
+    ).geometry
