@@ -6,7 +6,7 @@ import json
 import os
 import typing as t
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum
 from functools import partial
 from pathlib import Path
 
@@ -27,6 +27,7 @@ from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToTensor
 from landnet.config import (
     EPSG,
     GRIDS,
+    LANDSLIDE_DENSITY_THRESHOLD,
     NODATA,
     RASTER_CELL_SIZE,
     TEST_TILES,
@@ -35,7 +36,6 @@ from landnet.config import (
 from landnet.dataset import (
     Feature,
     geojson_to_gdf,
-    get_dem_tiles,
     get_empty_geojson,
     get_tile_relative_path,
     read_landslide_shapes,
@@ -148,8 +148,13 @@ class RasterTiles:
 
             return features
 
-        for image in list(images):
-            geojson['features'].extend(get_features(image))
+        for i, image in enumerate(list(images)):
+            features = get_features(image)
+            if len(features) == 0:
+                logger.error(
+                    'Failed to process dataset feature for raster %r' % image
+                )
+            geojson['features'].extend(features)
         return cls(geojson_to_gdf(geojson), tiles_parent)
 
     @classmethod
@@ -162,9 +167,6 @@ class RasterTiles:
         mode: Mode,
         suffix: str = '.tif',
     ) -> t.Self:
-        dem_tiles = get_dem_tiles()
-        dem_tiles = dem_tiles[dem_tiles['mode'] == mode]
-
         with rasterio.open(raster) as src:
             metadata = src.meta.copy()
 
@@ -182,37 +184,14 @@ class RasterTiles:
                 with rasterio.open(out_filepath, 'w', **metadata) as dst:
                     dst.write(src.read(window=window))
 
-            # for input in get_tiles(
-            #     src,
-            #     tile_size[0],
-            #     tile_size[1],
-            #     overlap,
-            # ):
-            #     handle_window(input)
+            for input in get_tiles(
+                src,
+                tile_size.rows,
+                tile_size.columns,
+                overlap,
+            ):
+                handle_window(input)
 
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                executor.map(
-                    handle_window,
-                    get_tiles(
-                        src,
-                        tile_size.rows,
-                        tile_size.columns,
-                        overlap,
-                    ),
-                )
-
-            # for window, transform in :
-            #     metadata['transform'] = transform
-            #     metadata['width'], metadata['height'] = (
-            #         window.width,
-            #         window.height,
-            #     )
-            #     out_filepath = (
-            #         out_dir / f'{window.col_off}_{window.row_off}{suffix}'
-            #     )
-
-            #     with rasterio.open(out_filepath, 'w', **metadata) as dst:
-            #         dst.write(src.read(window=window))
         return cls.from_dir(out_dir, mode, suffix)
 
     def add_overlap(
@@ -257,51 +236,53 @@ class RasterTiles:
 
         def from_path(tile_path: str):
             path = self.parent_dir / tile_path
-            dest = out_dir / tile_path
+            dest = out_dir / Path(tile_path).name
             os.makedirs(dest.parent, exist_ok=True)
             with rasterio.open(path) as ds:
                 arr = ds.read(1)
-            meta = ds.meta.copy()
-            newaff, width, height = rasterio.warp.calculate_default_transform(
-                ds.crs,
-                ds.crs,
-                ds.width,
-                ds.height,
-                *ds.bounds,
-                resolution=RASTER_CELL_SIZE,
-            )
-            newarr = np.ma.asanyarray(
-                np.empty(
-                    shape=(1, t.cast(int, height), t.cast(int, width)),
-                    dtype=arr.dtype,
+                meta = ds.meta.copy()
+                newaff, width, height = (
+                    rasterio.warp.calculate_default_transform(
+                        ds.crs,
+                        ds.crs,
+                        ds.width,
+                        ds.height,
+                        *ds.bounds,
+                        resolution=RASTER_CELL_SIZE,
+                    )
                 )
-            )
-            rasterio.warp.reproject(
-                arr,
-                newarr,
-                src_transform=ds.transform,
-                dst_transform=newaff,
-                width=width,
-                height=height,
-                src_nodata=NODATA,
-                dst_nodata=NODATA,
-                src_crs=crs,
-                dst_crs=crs,
-                resample=resampling,
-            )
-            meta.update(
-                {
-                    'transform': newaff,
-                    'width': width,
-                    'height': height,
-                    'nodata': NODATA,
-                    'crs': crs,
-                }
-            )
-            with rasterio.open(dest, mode='w', **meta) as dest_raster:
-                dest_raster.write(newarr)
+                newarr = np.ma.asanyarray(
+                    np.empty(
+                        shape=(1, t.cast(int, height), t.cast(int, width)),
+                        dtype=arr.dtype,
+                    )
+                )
+                rasterio.warp.reproject(
+                    arr,
+                    newarr,
+                    src_transform=ds.transform,
+                    dst_transform=newaff,
+                    width=width,
+                    height=height,
+                    src_nodata=NODATA,
+                    dst_nodata=NODATA,
+                    src_crs=crs,
+                    dst_crs=crs,
+                    resample=resampling,
+                )
+                meta.update(
+                    {
+                        'transform': newaff,
+                        'width': width,
+                        'height': height,
+                        'nodata': NODATA,
+                        'crs': crs,
+                    }
+                )
+                with rasterio.open(dest, mode='w', **meta) as dest_raster:
+                    dest_raster.write(newarr)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        with concurrent.futures.ThreadPoolExecutor() as executor:
             results = executor.map(from_path, self.tiles['path'])
             for result in results:
                 if isinstance(result, Exception):
@@ -339,12 +320,14 @@ def get_default_transform():
 
 def get_default_loader(path: str) -> Image.Image:
     with open(path, 'rb') as f:
-        return Image.open(f)
+        img = Image.open(f)
+        img.load()
+        return img
 
 
 class LandslideClass(Enum):
-    NO_LANDSLIDE = auto()
-    LANDSLIDE = auto()
+    NO_LANDSLIDE = 0
+    LANDSLIDE = 1
 
 
 class LandslideImageFolder(VisionDataset):
@@ -352,11 +335,13 @@ class LandslideImageFolder(VisionDataset):
         self,
         raster_tiles: RasterTiles,
         loader: c.Callable[[str], t.Any] = get_default_loader,
-        landslide_density_threshold: float = 0.05,
+        landslide_density_threshold: float = LANDSLIDE_DENSITY_THRESHOLD,
         transforms: c.Callable | None = None,
         transform: c.Callable | None = None,
         target_transform: c.Callable | None = None,
     ) -> None:
+        if transform is None:
+            transform = get_default_transform()
         super().__init__(
             raster_tiles.parent_dir, transforms, transform, target_transform
         )
@@ -410,7 +395,9 @@ class ImageFolders(t.TypedDict):
 T = t.TypeVar('T', bound=GeomorphometricalVariable)
 
 
-def handle_variable(variable: T, tile_size: TileSize) -> tuple[T, ImageFolders]:
+def get_image_folders_for_variable(
+    variable: T, tile_size: TileSize
+) -> tuple[T, ImageFolders]:
     image_folders = {}
     for mode in ('train', 'test'):
         out_dir = (
@@ -418,16 +405,19 @@ def handle_variable(variable: T, tile_size: TileSize) -> tuple[T, ImageFolders]:
             / variable.value
             / str(tile_size)
         )
-        os.makedirs(out_dir, exist_ok=True)
+        if False and out_dir.exists():
+            tiles = RasterTiles.from_dir(out_dir, mode)
+        else:
+            os.makedirs(out_dir, exist_ok=True)
 
-        grid = (GRIDS / mode / variable.value).with_suffix('.tif')
-        tiles = RasterTiles.from_raster(
-            grid,
-            tile_size,
-            overlap=0,
-            mode=mode,
-            out_dir=out_dir,
-        )
+            grid = (GRIDS / mode / variable.value).with_suffix('.tif')
+            tiles = RasterTiles.from_raster(
+                grid,
+                tile_size,
+                overlap=0,
+                mode=mode,
+                out_dir=out_dir,
+            )
         image_folders[mode] = LandslideImageFolder(tiles)
     return (variable, t.cast(ImageFolders, image_folders))
 
@@ -435,7 +425,12 @@ def handle_variable(variable: T, tile_size: TileSize) -> tuple[T, ImageFolders]:
 def get_image_folders(
     tile_size: TileSize,
 ) -> dict[GeomorphometricalVariable, ImageFolders]:
-    func = partial(handle_variable, tile_size=tile_size)
-    with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
+    func = partial(get_image_folders_for_variable, tile_size=tile_size)
+    logger.info(
+        'Creating tiles with %r for all of the geomorphometrical variables'
+        % tile_size
+    )
+    # results = [func(variable) for variable in GeomorphometricalVariable]
+    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
         results = executor.map(func, GeomorphometricalVariable)
     return {variable: image_folders for variable, image_folders in results}
