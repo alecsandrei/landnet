@@ -51,8 +51,15 @@ LandslideDensity = float
 TilePaths = dict[int, Path]
 ClassFolder = Path
 Mode = t.Literal['train', 'test']
-Rows = int
-Columns = int
+
+
+@dataclass
+class TileSize:
+    rows: int
+    columns: int
+
+    def __str__(self):
+        return f'{self.rows}x{self.columns}'
 
 
 def get_tiles(
@@ -149,7 +156,7 @@ class RasterTiles:
     def from_raster(
         cls,
         raster: Path,
-        tile_size: tuple[Rows, Columns],
+        tile_size: TileSize,
         overlap: int,
         out_dir: Path,
         mode: Mode,
@@ -188,8 +195,8 @@ class RasterTiles:
                     handle_window,
                     get_tiles(
                         src,
-                        tile_size[0],
-                        tile_size[1],
+                        tile_size.rows,
+                        tile_size.columns,
                         overlap,
                     ),
                 )
@@ -212,7 +219,7 @@ class RasterTiles:
         self,
         overlap: int,
         mode: Mode,
-        tile_size: tuple[Rows, Columns] = (100, 100),
+        tile_size: TileSize,
     ) -> t.Self:
         merged = self.merge(self.parent_dir / 'merged.tif')
         parent_dir = self.parent_dir.parent / f'overlap_{self.parent_dir.name}'
@@ -221,8 +228,8 @@ class RasterTiles:
 
             for window, transform in get_tiles(
                 src,
-                tile_size[0],
-                tile_size[1],
+                tile_size.rows,
+                tile_size.columns,
                 overlap,
             ):
                 metadata['transform'] = transform
@@ -403,15 +410,13 @@ class ImageFolders(t.TypedDict):
 T = t.TypeVar('T', bound=GeomorphometricalVariable)
 
 
-def handle_variable(
-    variable: T, tile_size: tuple[int, int]
-) -> tuple[T, ImageFolders]:
+def handle_variable(variable: T, tile_size: TileSize) -> tuple[T, ImageFolders]:
     image_folders = {}
     for mode in ('train', 'test'):
         out_dir = (
             (TRAIN_TILES if mode == 'train' else TEST_TILES)
             / variable.value
-            / f'{tile_size[0]}x{tile_size[1]}'
+            / str(tile_size)
         )
         os.makedirs(out_dir, exist_ok=True)
 
@@ -428,7 +433,7 @@ def handle_variable(
 
 
 def get_image_folders(
-    tile_size: tuple[int, int] = (100, 100),
+    tile_size: TileSize,
 ) -> dict[GeomorphometricalVariable, ImageFolders]:
     func = partial(handle_variable, tile_size=tile_size)
     with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
