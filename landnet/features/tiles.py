@@ -26,8 +26,11 @@ from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToTensor
 
 from landnet.config import (
     EPSG,
+    GRIDS,
     NODATA,
     RASTER_CELL_SIZE,
+    TEST_TILES,
+    TRAIN_TILES,
 )
 from landnet.dataset import (
     Feature,
