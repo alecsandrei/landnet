@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import os
 import typing as t
+from functools import cache
 
 import geopandas as gpd
 
 from landnet.config import EPSG, RAW_DATA_DIR
+
+if t.TYPE_CHECKING:
+    from shapely import Polygon
 
 PathLike = os.PathLike | str
 Mode = t.Literal['train', 'test']
@@ -52,6 +56,18 @@ def get_empty_geojson() -> GeoJSON:
         'crs': {'type': 'name', 'properties': {'name': f'EPSG:{EPSG}'}},
         'features': [],
     }
+
+
+@cache
+def get_dem_tiles() -> gpd.GeoDataFrame:
+    # Respects the GeoJSON type defined in this module
+    return gpd.read_file(RAW_DATA_DIR / 'dem_tiles.geojson')
+
+
+def get_tile_relative_path(
+    tiles: gpd.GeoDataFrame, raster_bounds: Polygon
+) -> str:
+    return t.cast(str, tiles[tiles.within(raster_bounds)].iloc[0].path)
 
 
 def geojson_to_gdf(geojson: GeoJSON) -> gpd.GeoDataFrame:
