@@ -4,7 +4,7 @@ import datetime as dt
 import json
 import logging
 import logging.config
-from typing import override
+import typing as t
 
 from landnet.config import LOGGING_CONFIG
 
@@ -44,7 +44,7 @@ class JSONFormatter(logging.Formatter):
         super().__init__()
         self.fmt_keys = fmt_keys if fmt_keys is not None else {}
 
-    @override
+    @t.override
     def format(self, record: logging.LogRecord) -> str:
         message = self._prepare_log_dict(record)
         return json.dumps(message, default=str)
@@ -78,13 +78,13 @@ class JSONFormatter(logging.Formatter):
 
 
 class NonErrorFilter(logging.Filter):
-    @override
+    @t.override
     def filter(self, record: logging.LogRecord) -> bool:
         return record.levelno <= logging.INFO
 
 
 class ErrorFilter(logging.Filter):
-    @override
+    @t.override
     def filter(self, record: logging.LogRecord) -> bool:
         return record.levelno >= logging.WARNING
 
@@ -93,3 +93,8 @@ def setup_logging():
     with LOGGING_CONFIG.open() as f_in:
         config = json.load(f_in)
     logging.config.dictConfig(config)
+
+
+def create_logger(name: str) -> logging.Logger:
+    logger = logging.getLogger('landnet')
+    return logger.getChild(name)
