@@ -33,6 +33,7 @@ class GeomorphometricalVariable(Enum):
     TERRAIN_SURFACE_CONVEXITY = 'conv'
     POSITIVE_TOPOGRAPHIC_OPENNESS = 'poso'
     NEGATIVE_TOPOGRAPHIC_OPENNESS = 'nego'
+    ASPECT = 'aspect'
     SLOPE = 'slope'
     NORTHNESS = 'northness'
     EASTNESS = 'eastness'
@@ -211,6 +212,7 @@ class TerrainAnalysis:
         dem = self.dem_edge if self.dem_edge is not None else self.dem
         return tool.execute(
             elevation=dem,
+            aspect=self.get_out_path(GeomorphometricalVariable.ASPECT),
             northness=self.get_out_path(GeomorphometricalVariable.NORTHNESS),
             eastness=self.get_out_path(GeomorphometricalVariable.EASTNESS),
             slope=self.get_out_path(GeomorphometricalVariable.SLOPE),
@@ -497,8 +499,8 @@ def compute_grids_for_dem(
 
 def compute_grids(tiles: RasterTiles, mode: Mode, saga: SAGA):
     tiles_dir = TRAIN_TILES if mode == 'train' else TEST_TILES
-    logger.debug('Resampling %r for %r' % (tiles, mode))
-    resampled = tiles.resample(tiles_dir / 'dem', mode)
-    logger.debug('Merging %r for %r' % (tiles, mode))
+    logger.debug('Resampling %r for %sing' % (tiles, mode))
+    resampled = tiles.resample(tiles_dir / 'dem' / '100x100', mode)
+    logger.debug('Merging %r for %sing' % (resampled, mode))
     merged = resampled.merge(GRIDS / mode / 'dem.tif')
     compute_grids_for_dem(merged, saga, mode)
