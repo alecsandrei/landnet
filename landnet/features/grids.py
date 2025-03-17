@@ -1,29 +1,26 @@
 from __future__ import annotations
 
 import collections.abc as c
-import os
 import typing as t
 from enum import Enum
 from pathlib import Path
 
-import geopandas as gpd
 from PySAGA_cmd.saga import SAGA
 
 from landnet.config import (
-    DEM_TILES,
     GRIDS,
     INTERIM_DATA_DIR,
     TEST_TILES,
     TRAIN_TILES,
 )
-from landnet.dataset import get_dem_tiles
-from landnet.features.tiles import RasterTiles
 from landnet.logger import create_logger
 
 if t.TYPE_CHECKING:
     from os import PathLike
 
     from PySAGA_cmd.saga import SAGA, Library, ToolOutput
+
+    from landnet.features.tiles import RasterTiles
 
 logger = create_logger(__name__)
 
@@ -37,6 +34,8 @@ class GeomorphometricalVariable(Enum):
     POSITIVE_TOPOGRAPHIC_OPENNESS = 'poso'
     NEGATIVE_TOPOGRAPHIC_OPENNESS = 'nego'
     SLOPE = 'slope'
+    NORTHNESS = 'northness'
+    EASTNESS = 'eastness'
     GENERAL_CURVATURE = 'cgene'
     PROFILE_CURVATURE = 'cprof'
     PLAN_CURVATURE = 'cplan'
@@ -128,14 +127,7 @@ class TerrainAnalysis:
     def hydrology(self) -> Library:
         return self.saga / 'ta_hydrology'
 
-    def get_out_path(
-        self, dem: Path, variable: GeomorphometricalVariable
-    ) -> Path:
-        # parts = list(dem.parts)
-        # parts[-4] = variable.value
-        # path = Path(*parts)
-        # os.makedirs(path.parent, exist_ok=True)
-        # return path
+    def get_out_path(self, variable: GeomorphometricalVariable) -> Path:
         return (GRIDS / self.mode / variable.value).with_suffix('.tif')
 
     def index_of_convergence(self) -> ToolOutput:
@@ -145,7 +137,7 @@ class TerrainAnalysis:
         return tool.execute(
             elevation=dem,
             result=self.get_out_path(
-                dem, GeomorphometricalVariable.INDEX_OF_CONVERGENCE
+                GeomorphometricalVariable.INDEX_OF_CONVERGENCE
             ),
             method=0,
             neighbours=0,
@@ -161,7 +153,6 @@ class TerrainAnalysis:
         return tool.execute(
             dem=dem,
             convexity=self.get_out_path(
-                dem,
                 GeomorphometricalVariable.TERRAIN_SURFACE_CONVEXITY,
             ),
             kernel=0,
@@ -182,9 +173,7 @@ class TerrainAnalysis:
         return tool.execute(
             elevation=self.dem,
             method='5',
-            shade=self.get_out_path(
-                self.dem, GeomorphometricalVariable.HILLSHADE
-            ),
+            shade=self.get_out_path(GeomorphometricalVariable.HILLSHADE),
             verbose=self.verbose,
             infer_obj_type=self.infer_obj_type,
             ignore_stderr=self.ignore_stderr,
@@ -196,11 +185,9 @@ class TerrainAnalysis:
         return tool.execute(
             dem=self.dem,
             pos=self.get_out_path(
-                self.dem,
                 GeomorphometricalVariable.POSITIVE_TOPOGRAPHIC_OPENNESS,
             ),
             neg=self.get_out_path(
-                self.dem,
                 GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
             ),
             radius=100,
@@ -224,37 +211,34 @@ class TerrainAnalysis:
         dem = self.dem_edge if self.dem_edge is not None else self.dem
         return tool.execute(
             elevation=dem,
-            slope=self.get_out_path(dem, GeomorphometricalVariable.SLOPE),
+            northness=self.get_out_path(GeomorphometricalVariable.NORTHNESS),
+            eastness=self.get_out_path(GeomorphometricalVariable.EASTNESS),
+            slope=self.get_out_path(GeomorphometricalVariable.SLOPE),
             c_gene=self.get_out_path(
-                dem, GeomorphometricalVariable.GENERAL_CURVATURE
+                GeomorphometricalVariable.GENERAL_CURVATURE
             ),
             c_prof=self.get_out_path(
-                dem, GeomorphometricalVariable.PROFILE_CURVATURE
+                GeomorphometricalVariable.PROFILE_CURVATURE
             ),
-            c_plan=self.get_out_path(
-                dem, GeomorphometricalVariable.PLAN_CURVATURE
-            ),
+            c_plan=self.get_out_path(GeomorphometricalVariable.PLAN_CURVATURE),
             c_tang=self.get_out_path(
-                dem, GeomorphometricalVariable.TANGENTIAL_CURVATURE
+                GeomorphometricalVariable.TANGENTIAL_CURVATURE
             ),
             c_long=self.get_out_path(
-                dem, GeomorphometricalVariable.LONGITUDINAL_CURVATURE
+                GeomorphometricalVariable.LONGITUDINAL_CURVATURE
             ),
             c_cros=self.get_out_path(
-                dem,
                 GeomorphometricalVariable.CROSS_SECTIONAL_CURVATURE,
             ),
             c_mini=self.get_out_path(
-                dem, GeomorphometricalVariable.MINIMAL_CURVATURE
+                GeomorphometricalVariable.MINIMAL_CURVATURE
             ),
             c_maxi=self.get_out_path(
-                dem, GeomorphometricalVariable.MAXIMAL_CURVATURE
+                GeomorphometricalVariable.MAXIMAL_CURVATURE
             ),
-            c_tota=self.get_out_path(
-                dem, GeomorphometricalVariable.TOTAL_CURVATURE
-            ),
+            c_tota=self.get_out_path(GeomorphometricalVariable.TOTAL_CURVATURE),
             c_roto=self.get_out_path(
-                dem, GeomorphometricalVariable.FLOW_LINE_CURVATURE
+                GeomorphometricalVariable.FLOW_LINE_CURVATURE
             ),
             method=6,
             unit_slope=0,
@@ -268,9 +252,7 @@ class TerrainAnalysis:
         tool = self.morphometry / 'Real Surface Area'
         return tool.execute(
             dem=self.dem,
-            area=self.get_out_path(
-                self.dem, GeomorphometricalVariable.REAL_SURFACE_AREA
-            ),
+            area=self.get_out_path(GeomorphometricalVariable.REAL_SURFACE_AREA),
             verbose=self.verbose,
             infer_obj_type=self.infer_obj_type,
             ignore_stderr=self.ignore_stderr,
@@ -281,7 +263,7 @@ class TerrainAnalysis:
         return tool.execute(
             dem=self.dem,
             exposition=self.get_out_path(
-                self.dem, GeomorphometricalVariable.WIND_EXPOSITION_INDEX
+                GeomorphometricalVariable.WIND_EXPOSITION_INDEX
             ),
             maxdist=0.1,
             step=90,
@@ -299,7 +281,7 @@ class TerrainAnalysis:
         return tool.execute(
             dem=self.dem,
             tpi=self.get_out_path(
-                self.dem, GeomorphometricalVariable.TOPOGRAPHIC_POSITION_INDEX
+                GeomorphometricalVariable.TOPOGRAPHIC_POSITION_INDEX
             ),
             standard=0,
             dw_weighting=0,
@@ -315,7 +297,7 @@ class TerrainAnalysis:
         return tool.execute(
             elevation=self.dem,
             valley_depth=self.get_out_path(
-                self.dem, GeomorphometricalVariable.VALLEY_DEPTH
+                GeomorphometricalVariable.VALLEY_DEPTH
             ),
             threshold=1,
             maxiter=0,
@@ -333,7 +315,6 @@ class TerrainAnalysis:
         return tool.execute(
             dem=dem,
             tri=self.get_out_path(
-                dem,
                 GeomorphometricalVariable.TERRAIN_RUGGEDNESS_INDEX,
             ),
             mode=1,
@@ -353,7 +334,6 @@ class TerrainAnalysis:
         return tool.execute(
             dem=dem,
             vrm=self.get_out_path(
-                dem,
                 GeomorphometricalVariable.VECTOR_RUGGEDNESS_MEASURE,
             ),
             mode=1,
@@ -373,19 +353,16 @@ class TerrainAnalysis:
         return tool.execute(
             dem=dem,
             c_local=self.get_out_path(
-                dem, GeomorphometricalVariable.LOCAL_CURVATURE
+                GeomorphometricalVariable.LOCAL_CURVATURE
             ),
-            c_up=self.get_out_path(
-                dem, GeomorphometricalVariable.UPSLOPE_CURVATURE
-            ),
+            c_up=self.get_out_path(GeomorphometricalVariable.UPSLOPE_CURVATURE),
             c_up_local=self.get_out_path(
-                dem, GeomorphometricalVariable.LOCAL_UPSLOPE_CURVATURE
+                GeomorphometricalVariable.LOCAL_UPSLOPE_CURVATURE
             ),
             c_down=self.get_out_path(
-                dem, GeomorphometricalVariable.DOWNSLOPE_CURVATURE
+                GeomorphometricalVariable.DOWNSLOPE_CURVATURE
             ),
             c_down_local=self.get_out_path(
-                dem,
                 GeomorphometricalVariable.LOCAL_DOWNSLOPE_CURVATURE,
             ),
             weighting=0.5,
@@ -398,9 +375,7 @@ class TerrainAnalysis:
         tool = self.hydrology / 'Flow Accumulation (Parallelizable)'
         return tool.execute(
             dem=self.dem,
-            flow=self.get_out_path(
-                self.dem, GeomorphometricalVariable.FLOW_ACCUMULATION
-            ),
+            flow=self.get_out_path(GeomorphometricalVariable.FLOW_ACCUMULATION),
             update=0,
             method=2,
             convergence=1.1,
@@ -415,7 +390,7 @@ class TerrainAnalysis:
             elevation=self.dem,
             # seed=None,
             length=self.get_out_path(
-                self.dem, GeomorphometricalVariable.FLOW_PATH_LENGTH
+                GeomorphometricalVariable.FLOW_PATH_LENGTH
             ),
             seeds_only=0,
             method=1,
@@ -429,9 +404,7 @@ class TerrainAnalysis:
         tool = self.hydrology / 'Slope Length'
         return tool.execute(
             dem=self.dem,
-            length=self.get_out_path(
-                self.dem, GeomorphometricalVariable.SLOPE_LENGTH
-            ),
+            length=self.get_out_path(GeomorphometricalVariable.SLOPE_LENGTH),
             verbose=self.verbose,
             infer_obj_type=self.infer_obj_type,
             ignore_stderr=self.ignore_stderr,
@@ -443,9 +416,7 @@ class TerrainAnalysis:
             dem=self.dem,
             # weights=None,
             weights_default=1,
-            balance=self.get_out_path(
-                self.dem, GeomorphometricalVariable.CELL_BALANCE
-            ),
+            balance=self.get_out_path(GeomorphometricalVariable.CELL_BALANCE),
             method=1,
             verbose=self.verbose,
             infer_obj_type=self.infer_obj_type,
@@ -457,7 +428,7 @@ class TerrainAnalysis:
         return tool.execute(
             dem=self.dem,
             twi=self.get_out_path(
-                self.dem, GeomorphometricalVariable.TOPOGRAPHIC_WETNESS_INDEX
+                GeomorphometricalVariable.TOPOGRAPHIC_WETNESS_INDEX
             ),
             flow_method=0,
         )
@@ -524,13 +495,10 @@ def compute_grids_for_dem(
         logger.info('%s finished executing for %r' % (tool_name, mode))
 
 
-def compute_grids(mode: Mode, saga: SAGA):
+def compute_grids(tiles: RasterTiles, mode: Mode, saga: SAGA):
     tiles_dir = TRAIN_TILES if mode == 'train' else TEST_TILES
-    tiles = t.cast(gpd.GeoDataFrame, get_dem_tiles()).dropna(subset='mode')
-    os.makedirs((GRIDS / mode), exist_ok=True)
-    raster_tiles = RasterTiles(tiles[tiles.loc[:, 'mode'] == mode], DEM_TILES)
-    logger.debug('Resampling %r for %r' % (raster_tiles, mode))
-    resampled = raster_tiles.resample(tiles_dir / 'dem', mode)
-    logger.debug('Merging %r for %r' % (raster_tiles, mode))
+    logger.debug('Resampling %r for %r' % (tiles, mode))
+    resampled = tiles.resample(tiles_dir / 'dem', mode)
+    logger.debug('Merging %r for %r' % (tiles, mode))
     merged = resampled.merge(GRIDS / mode / 'dem.tif')
     compute_grids_for_dem(merged, saga, mode)
