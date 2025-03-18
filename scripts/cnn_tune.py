@@ -30,16 +30,22 @@ from landnet.config import (
     EPOCHS,
     FIGURES_DIR,
     GPUS,
-    LANDSLIDE_DENSITY_THRESHOLD,
+    GRIDS,
     MODELS_DIR,
     NUM_SAMPLES,
     OVERWRITE,
     PRETRAINED,
     RAW_DATA_DIR,
     TEST_TILES,
-    TRAIN_TILES,
 )
-from landnet.features import LandslideClass, LandslideImageFolder
+from landnet.features.grids import GeomorphometricalVariable
+from landnet.features.tiles import (
+    LandslideClass,
+    LandslideImages,
+    TileSize,
+    get_image_folders_for_variable,
+)
+from landnet.logger import create_logger
 from landnet.modelling.train import (
     Metrics,
     device,
@@ -54,6 +60,7 @@ if t.TYPE_CHECKING:
 
 torch.cuda.empty_cache()
 
+logger = create_logger(__name__)
 
 # dirs
 TEMP_RAY_TUNING = MODELS_DIR / 'temp_ray_tune'
@@ -114,20 +121,11 @@ def get_transform() -> Compose:
     )
 
 
-def get_train_datasets(train_folders: Path | c.Sequence[Path]):
-    if not isinstance(train_folders, c.Sequence):
-        train_folders = [train_folders]
-    transform = get_transform()
-    loader = partial(pil_loader, size=(100, 100))
+def get_train_datasets(image_folders: c.Sequence[LandslideImages]):
+    # transform = get_transform()
+    # loader = partial(pil_loader, size=(tile_size.rows, tile_size.columns))
     train_image_folder: ConcatDataset[ImageFolder] = ConcatDataset(
-        [
-            LandslideImageFolder(
-                root=train_folder,
-                transform=transform,
-                loader=loader,
-            )
-            for train_folder in train_folders
-        ]
+        image_folders
     )
     train_dataset, validation_dataset = torch.utils.data.random_split(
         train_image_folder, (0.7, 0.3)
@@ -136,9 +134,10 @@ def get_train_datasets(train_folders: Path | c.Sequence[Path]):
 
 
 def get_train_loaders(
-    train_folders: Path | c.Sequence[Path], batch_size: int
+    image_folders: c.Sequence[LandslideImages],
+    batch_size: int,
 ) -> tuple[DataLoader, DataLoader]:
-    train_dataset, validation_dataset = get_train_datasets(train_folders)
+    train_dataset, validation_dataset = get_train_datasets(image_folders)
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -183,11 +182,23 @@ def get_test_loader(test_folders: Path | c.Sequence[Path], batch_size):
     )
 
 
-def ray_train_wrapper(config, train_folder: Path):
-    batch_size, learning_rate = config['batch_size'], config['learning_rate']
-    print(f'Starting {train_folder.name}')
+def ray_train_wrapper(config, grids: Path | c.Sequence[Path]):
+    batch_size, tile_size, learning_rate = (
+        config['batch_size'],
+        config['tile_size'],
+        config['learning_rate'],
+    )
+    if not isinstance(grids, c.Sequence):
+        grids = [grids]
+    logger.info('Starting %s' % [grid.stem for grid in grids])
+    image_folders = [
+        get_image_folders_for_variable(
+            GeomorphometricalVariable(grid.stem), tile_size
+        )
+        for grid in grids
+    ]
     train_loader, validation_loader = get_train_loaders(
-        train_folder, batch_size
+        [folder['train'] for _, folder in image_folders], batch_size
     )
     model: nn.Module = MODEL()
     loss_fn = nn.BCELoss()
@@ -227,6 +238,7 @@ def get_param_space():
     return {
         'learning_rate': tune.loguniform(1e-6, 1e-3),
         'batch_size': tune.choice([2, 4, 8]),
+        'tile_size': tune.choice([TileSize(x, x) for x in tune.choice([100])]),
     }
 
 
@@ -263,32 +275,20 @@ def get_tuner(train_func, **run_config_kwargs) -> tune.Tuner:
     )
 
 
-def reclassify_rasters(
-    image_folder: Path,
-    landslide_threshold: float,
-    landslide_percentage_csv: Path,
-):
-    df = pd.read_csv(landslide_percentage_csv)
-    df_subset = (
-        df[['id', 'ldl']]
-        .rename(columns={'id': 'tile', 'ldl': 'landslide_percentage'})
-        .set_index('tile')
-    )
-    df_subset['landslide_percentage'] = df_subset['landslide_percentage'] / 100
-    tiles = df_subset.to_dict()['landslide_percentage']
-    LandslideImageFolder(root=image_folder).reclassify(
-        tiles, landslide_threshold
-    )
-
-
 def train_models():
-    folders = zip(
-        [path for path in TRAIN_TILES.iterdir() if path.is_dir()],
-        [path for path in TEST_TILES.iterdir() if path.is_dir()],
-    )
+    # folders = zip(
+    #     [path for path in TRAIN_TILES.iterdir() if path.is_dir()],
+    #     [path for path in TEST_TILES.iterdir() if path.is_dir()],
+    # )
 
-    for train_folder, test_folder in folders:
-        out_name = MODELS_DIR / f'{train_folder.stem}_{ARCHITECTURE}'
+    train_grids = GRIDS / 'train'
+    test_grids = GRIDS / 'test'
+    grids = ['shade', 'slope']
+    for train_grid in train_grids.glob('*.tif'):
+        if train_grid.stem not in grids:
+            continue
+        test_grid = test_grids / train_grid.name
+        out_name = MODELS_DIR / f'{train_grid.stem}_{ARCHITECTURE}'
         if (
             not OVERWRITE
             and out_name.with_suffix('.pt').exists()
@@ -296,25 +296,14 @@ def train_models():
         ):
             continue
 
-        reclassify_rasters(
-            train_folder,
-            LANDSLIDE_DENSITY_THRESHOLD,
-            TRAIN_LANDSLIDE_PERCENTAGE,
-        )
-        reclassify_rasters(
-            test_folder, LANDSLIDE_DENSITY_THRESHOLD, TEST_LANDSLIDE_PERCENTAGE
-        )
-        assert train_folder.name == test_folder.name, (
-            train_folder.name,
-            test_folder.name,
-        )
         train_func = partial(
             ray_train_wrapper,
-            train_folder=train_folder,
+            grids=train_grid,
         )
+        TEMP_RAY_TUNING.mkdir(exist_ok=True)
         tuner = get_tuner(
             train_func,
-            name=train_folder.name,
+            name=train_grid.stem,
             storage_path=TEMP_RAY_TUNING,
         )
         results = tuner.fit()
@@ -414,7 +403,6 @@ def evaluate_models():
             (model_path.parent / model_path.stem).with_suffix('.csv')
         )
         if not df.shape[0] == NUM_SAMPLES:
-            breakpoint()
             print(model_path, 'failed', df.shape[0])
             continue
         batch_size = int(df.sort_values(by='loss').iloc[0]['config/batch_size'])
