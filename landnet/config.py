@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import os
+import typing as t
+import uuid
 from pathlib import Path
+
+if t.TYPE_CHECKING:
+    pass
+
 
 # Paths
 PROJ_ROOT = Path(__file__).resolve().parents[1]
@@ -28,12 +34,15 @@ EPSG = 3844
 SAGA_CMD = None  # could be configures to specify path to saga_cmd
 RASTER_CELL_SIZE = (5, 5)  # meters
 NODATA = -32767
+DEFAULT_TILE_SIZE = 100
+
 # Model configs
+TRIAL_NAME = os.getenv('TRIAL_NAME', uuid.uuid4().hex)
 LANDSLIDE_DENSITY_THRESHOLD = float(
     os.getenv('LANDSLIDE_DENSITY_THRESHOLD', 0.05)
 )
 ARCHITECTURE = os.getenv('ARCHITECTURE', 'alexnet')  # or 'resnet50' 'convnext'
-PRETRAINED = bool(os.getenv('PRETRAINED_WEIGHTS', False))
+PRETRAINED = bool(os.getenv('PRETRAINED', 1))
 EPOCHS = int(os.getenv('EPOCHS', 10))
 GPUS = int(os.getenv('GPUS', 1))
 CPUS = int(os.getenv('CPUS', 4))
@@ -41,5 +50,5 @@ NUM_SAMPLES = int(
     os.getenv('NUM_SAMPLES', 10)
 )  # Number of models to train with ray for hyperparameter tuning
 OVERWRITE = bool(
-    os.getenv('OVERWRITE', False)
+    int(os.getenv('OVERWRITE', 0))
 )  # Whether or not to overwrite the existing models

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import collections.abc as c
 import typing as t
-from enum import Enum
 from pathlib import Path
 
 from PySAGA_cmd.saga import SAGA
@@ -13,6 +12,7 @@ from landnet.config import (
     TEST_TILES,
     TRAIN_TILES,
 )
+from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.logger import create_logger
 
 if t.TYPE_CHECKING:
@@ -23,47 +23,6 @@ if t.TYPE_CHECKING:
     from landnet.features.tiles import RasterTiles
 
 logger = create_logger(__name__)
-
-Mode = t.Literal['train', 'test']
-
-
-class GeomorphometricalVariable(Enum):
-    INDEX_OF_CONVERGENCE = 'ioc'
-    HILLSHADE = 'shade'
-    TERRAIN_SURFACE_CONVEXITY = 'conv'
-    POSITIVE_TOPOGRAPHIC_OPENNESS = 'poso'
-    NEGATIVE_TOPOGRAPHIC_OPENNESS = 'nego'
-    ASPECT = 'aspect'
-    SLOPE = 'slope'
-    NORTHNESS = 'northness'
-    EASTNESS = 'eastness'
-    GENERAL_CURVATURE = 'cgene'
-    PROFILE_CURVATURE = 'cprof'
-    PLAN_CURVATURE = 'cplan'
-    TANGENTIAL_CURVATURE = 'ctang'
-    LONGITUDINAL_CURVATURE = 'clong'
-    CROSS_SECTIONAL_CURVATURE = 'ccros'
-    MINIMAL_CURVATURE = 'cmini'
-    MAXIMAL_CURVATURE = 'cmaxi'
-    TOTAL_CURVATURE = 'ctota'
-    FLOW_LINE_CURVATURE = 'croto'
-    DIGITAL_ELEVATION_MODEL = 'dem'
-    REAL_SURFACE_AREA = 'area'
-    TOPOGRAPHIC_POSITION_INDEX = 'tpi'
-    VALLEY_DEPTH = 'vld'
-    TERRAIN_RUGGEDNESS_INDEX = 'tri'
-    VECTOR_RUGGEDNESS_MEASURE = 'vrm'
-    LOCAL_CURVATURE = 'clo'
-    UPSLOPE_CURVATURE = 'cup'
-    LOCAL_UPSLOPE_CURVATURE = 'clu'
-    DOWNSLOPE_CURVATURE = 'cdo'
-    LOCAL_DOWNSLOPE_CURVATURE = 'cdl'
-    FLOW_ACCUMULATION = 'flow'
-    FLOW_PATH_LENGTH = 'fpl'
-    SLOPE_LENGTH = 'spl'
-    CELL_BALANCE = 'cbl'
-    TOPOGRAPHIC_WETNESS_INDEX = 'twi'
-    WIND_EXPOSITION_INDEX = 'wind'
 
 
 class TerrainAnalysis:
@@ -129,7 +88,7 @@ class TerrainAnalysis:
         return self.saga / 'ta_hydrology'
 
     def get_out_path(self, variable: GeomorphometricalVariable) -> Path:
-        return (GRIDS / self.mode / variable.value).with_suffix('.tif')
+        return (GRIDS / self.mode.value / variable.value).with_suffix('.tif')
 
     def index_of_convergence(self) -> ToolOutput:
         """Requires 1 or 2 units of buffer depending on the neighbours parameter."""
@@ -498,9 +457,9 @@ def compute_grids_for_dem(
 
 
 def compute_grids(tiles: RasterTiles, mode: Mode, saga: SAGA):
-    tiles_dir = TRAIN_TILES if mode == 'train' else TEST_TILES
+    tiles_dir = TRAIN_TILES if mode is Mode.TRAIN else TEST_TILES
     logger.debug('Resampling %r for %sing' % (tiles, mode))
     resampled = tiles.resample(tiles_dir / 'dem' / '100x100', mode)
     logger.debug('Merging %r for %sing' % (resampled, mode))
-    merged = resampled.merge(GRIDS / mode / 'dem.tif')
+    merged = resampled.merge(GRIDS / mode.value / 'dem.tif')
     compute_grids_for_dem(merged, saga, mode)

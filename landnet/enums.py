@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+from enum import Enum
+
+
+class LandslideClass(Enum):
+    NO_LANDSLIDE = 0
+    LANDSLIDE = 1
+
+
+class Mode(Enum):
+    TRAIN = 'train'
+    TEST = 'test'
+
+
+class GeomorphometricalVariable(Enum):
+    INDEX_OF_CONVERGENCE = 'ioc'
+    HILLSHADE = 'shade'
+    TERRAIN_SURFACE_CONVEXITY = 'conv'
+    POSITIVE_TOPOGRAPHIC_OPENNESS = 'poso'
+    NEGATIVE_TOPOGRAPHIC_OPENNESS = 'nego'
+    ASPECT = 'aspect'
+    SLOPE = 'slope'
+    NORTHNESS = 'northness'
+    EASTNESS = 'eastness'
+    GENERAL_CURVATURE = 'cgene'
+    PROFILE_CURVATURE = 'cprof'
+    PLAN_CURVATURE = 'cplan'
+    TANGENTIAL_CURVATURE = 'ctang'
+    LONGITUDINAL_CURVATURE = 'clong'
+    CROSS_SECTIONAL_CURVATURE = 'ccros'
+    MINIMAL_CURVATURE = 'cmini'
+    MAXIMAL_CURVATURE = 'cmaxi'
+    TOTAL_CURVATURE = 'ctota'
+    FLOW_LINE_CURVATURE = 'croto'
+    DIGITAL_ELEVATION_MODEL = 'dem'
+    REAL_SURFACE_AREA = 'area'
+    TOPOGRAPHIC_POSITION_INDEX = 'tpi'
+    VALLEY_DEPTH = 'vld'
+    TERRAIN_RUGGEDNESS_INDEX = 'tri'
+    VECTOR_RUGGEDNESS_MEASURE = 'vrm'
+    LOCAL_CURVATURE = 'clo'
+    UPSLOPE_CURVATURE = 'cup'
+    LOCAL_UPSLOPE_CURVATURE = 'clu'
+    DOWNSLOPE_CURVATURE = 'cdo'
+    LOCAL_DOWNSLOPE_CURVATURE = 'cdl'
+    FLOW_ACCUMULATION = 'flow'
+    FLOW_PATH_LENGTH = 'fpl'
+    SLOPE_LENGTH = 'spl'
+    CELL_BALANCE = 'cbl'
+    TOPOGRAPHIC_WETNESS_INDEX = 'twi'
+    WIND_EXPOSITION_INDEX = 'wind'

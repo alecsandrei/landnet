@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import typing as t
-from enum import Enum, auto
 from functools import cache
 
 import pandas as pd
@@ -9,6 +8,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
+from landnet.enums import Mode
 from landnet.modelling.stats import Metrics, Result
 
 if t.TYPE_CHECKING:
@@ -28,11 +28,6 @@ class Epoch(t.NamedTuple):
     validation: Result
 
 
-class Mode(Enum):
-    TRAINING = auto()
-    EVALUATION = auto()
-
-
 def evaluate_model(
     model: nn.Module, test_loader: DataLoader, loss_fn: nn.Module
 ) -> Result:
@@ -45,7 +40,7 @@ def evaluate_model(
                     batch=batch,
                     model=model,
                     loss_fn=loss_fn,
-                    mode=Mode.EVALUATION,
+                    mode=Mode.TEST,
                 )
             )
     return Result.from_results(results)
@@ -56,10 +51,10 @@ def handle_prediction(
     batch: DataLoader,
     model: nn.Module,
     loss_fn: nn.Module,
-    mode: Mode = Mode.TRAINING,
+    mode: Mode = Mode.TRAIN,
     optimizer: Optimizer | None = None,
 ) -> Result:
-    if mode is Mode.TRAINING and optimizer is None:
+    if mode is Mode.TRAIN and optimizer is None:
         raise ValueError('The optimizer was not provided in training mode.')
     x, y = batch
     x, y = x.to(device()), y.to(device()).reshape(-1, 1)
@@ -71,7 +66,7 @@ def handle_prediction(
     logits = logits.flatten().tolist()
     y = y.flatten().tolist()
     loss_value = loss.item()
-    if mode is Mode.TRAINING:
+    if mode is Mode.TRAIN:
         if optimizer is None:
             raise ValueError(
                 f'Optimizer should have been provided when {mode=}'
@@ -101,7 +96,7 @@ def one_epoch(
                 batch=batch,
                 model=model,
                 loss_fn=loss_fn,
-                mode=Mode.TRAINING,
+                mode=Mode.TRAIN,
                 optimizer=optimizer,
             )
         )

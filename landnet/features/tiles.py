@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import collections.abc as c
 import concurrent.futures
-import json
 import os
+import time
 import typing as t
 from dataclasses import dataclass, field
-from enum import Enum
 from functools import partial
 from pathlib import Path
 
@@ -16,50 +15,65 @@ import rasterio.crs
 import rasterio.mask
 import rasterio.merge
 import rasterio.warp
+import torch
 from PIL import Image
 from rasterio import DatasetReader, windows
 from rasterio.enums import Resampling
 from rasterio.features import dataset_features
-from shapely import MultiPolygon, Polygon, box, from_geojson
-from torchvision.datasets import VisionDataset
-from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToTensor
+from shapely import Polygon, box
+from torch.utils.data import Dataset
+from torchvision.transforms import (
+    Compose,
+    Lambda,
+    Normalize,
+    RandomApply,
+    RandomHorizontalFlip,
+    ToTensor,
+    functional,
+)
 
+from landnet._typing import ImageFolders, Metadata
 from landnet.config import (
+    DEFAULT_TILE_SIZE,
     EPSG,
     GRIDS,
     LANDSLIDE_DENSITY_THRESHOLD,
     NODATA,
     RASTER_CELL_SIZE,
-    TEST_TILES,
-    TRAIN_TILES,
 )
 from landnet.dataset import (
-    Feature,
     geojson_to_gdf,
     get_empty_geojson,
+    get_landslide_shapes,
+    get_percentage_intersection,
     get_tile_relative_path,
-    read_landslide_shapes,
+    process_feature,
 )
+from landnet.enums import LandslideClass, Mode
 from landnet.features.grids import GeomorphometricalVariable
 from landnet.logger import create_logger
 
-logger = create_logger(__name__)
+if t.TYPE_CHECKING:
+    from torch import Tensor
 
-PathLike = os.PathLike | str
-LandslideTile = int
-LandslideDensity = float
-TilePaths = dict[int, Path]
-ClassFolder = Path
-Mode = t.Literal['train', 'test']
+logger = create_logger(__name__)
 
 
 @dataclass
 class TileSize:
-    rows: int
     columns: int
+    rows: int
+
+    def __hash__(self) -> int:
+        return hash(str(self))
 
     def __str__(self):
-        return f'{self.rows}x{self.columns}'
+        return f'{self.columns}x{self.rows}'
+
+    @classmethod
+    def from_string(cls, string: str):
+        split = string.split('x')
+        return TileSize(int(split[0]), int(split[1]))
 
 
 def get_tiles(
@@ -75,16 +89,117 @@ def get_tiles(
             x -= overlap
         width = tile_width + overlap * (2 if x != 0 else 1)
         if x + width > ncols:
+            # logger.warning('Could not create tiles from x=%i' % x)
             break
         for y in range(0, nrows + ystep, ystep):
             if y != 0:
                 y -= overlap
             height = tile_height + overlap * (2 if y != 0 else 1)
             if y + height > nrows:
+                # logger.warning('Could not create tiles from y=%i' % y)
                 break
             window = windows.Window(x, y, width, height)  # type: ignore
             transform = windows.transform(window, ds.transform)
             yield window, transform
+
+
+def get_tile(
+    src: DatasetReader,
+    index: int,
+    tile_width: int,
+    tile_height: int,
+    overlap: int = 0,
+):
+    """Fetch a specific tile by index, computing the window based on the index."""
+
+    # Compute the number of tiles in both x and y directions
+    ncols, nrows = src.width, src.height
+    xstep = tile_width
+    ystep = tile_height
+    max_x = ncols // tile_width
+    max_y = nrows // tile_height
+    index_x = index // max_x
+    index_y = index % max_x
+    x = index_x * tile_width
+    y = index_y * tile_height
+    window = windows.Window(x, y, tile_width, tile_height)  # type: ignore
+    transform = windows.transform(window, src.transform)
+    return window, transform
+
+
+def get_tiles_length(
+    src: DatasetReader, tile_width: int, tile_height: int, overlap: int = 0
+) -> int:
+    ncols, nrows = src.width, src.height
+    return (nrows // tile_width) * (ncols // tile_height)
+
+
+@dataclass
+class Grid:
+    path: Path
+
+    def get_tiles_length(
+        self, tile_width: int, tile_height: int, overlap: int = 0
+    ) -> int:
+        with rasterio.open(self.path) as src:
+            ncols, nrows = src.width, src.height
+            return (nrows // tile_width) * (ncols // tile_height)
+
+    def get_tile(
+        self, index: int, tile_width: int, tile_height: int, overlap: int = 0
+    ) -> tuple[Metadata, np.ndarray, Polygon]:
+        with rasterio.open(self.path) as src:
+            metadata = src.meta.copy()
+
+            window, transform = get_tile(
+                src, index, tile_width, tile_height, overlap
+            )
+            metadata['transform'] = transform
+            metadata['width'], metadata['height'] = (
+                window.width,
+                window.height,
+            )
+            bounds = box(*windows.bounds(window, src.transform))
+            return (
+                metadata,
+                src.read(window=window),
+                bounds,
+            )
+
+    def get_tiles(
+        self, tile_width, tile_height, overlap: int = 0
+    ) -> c.Generator[tuple[Metadata, np.ndarray]]:
+        tiles_length = self.get_tiles_length(tile_width, tile_height, overlap)
+        with rasterio.open(self.path) as src:
+            metadata = src.meta.copy()
+            for i in range(tiles_length):
+                window, transform = get_tile(src, i, tile_width, tile_height)
+                metadata['transform'] = transform
+                metadata['width'], metadata['height'] = (
+                    window.width,
+                    window.height,
+                )
+                yield (
+                    metadata,
+                    src.read(window=window),
+                )
+
+    def get_features(
+        self,
+        window: windows.Window | None = None,
+        metadata: Metadata | None = None,
+    ) -> list[dict[str, t.Any]]:
+        metadata = metadata or {}
+        with rasterio.open(self.path, window=window, **metadata) as raster:
+            return list(
+                dataset_features(
+                    raster,
+                    bidx=1,
+                    as_mask=True,
+                    geographic=False,
+                    band=False,
+                )
+            )
 
 
 @dataclass
@@ -96,65 +211,20 @@ class RasterTiles:
     def from_dir(
         cls, tiles_parent: Path, mode: Mode, suffix: str = '.tif'
     ) -> t.Self:
-        landslide_shapes = read_landslide_shapes(mode)
         geojson = get_empty_geojson()
         images = tiles_parent.rglob(f'*{suffix}')
 
-        def get_percentage_intersection(
-            feature: Polygon | MultiPolygon,
-        ) -> float:
-            intersection = landslide_shapes.intersection(feature).union_all()
-            intersection_area = (
-                intersection.area if not intersection.is_empty else 0
-            )
-            polygon_area = feature.area
-            if polygon_area == 0:
-                return 0
-            return intersection_area / polygon_area
-
-        def process_feature(feature: dict[str, t.Any], path: Path) -> Feature:
-            keys_to_remove = [
-                k
-                for k in feature
-                if k not in Feature.__required_keys__
-                and k not in Feature.__optional_keys__
+        for image in images:
+            features = Grid(image).get_features()
+            processed_features = [
+                process_feature(feature, mode, image, tiles_parent)
+                for feature in features
             ]
-            for k in keys_to_remove:
-                feature.pop(k)
-            feature['properties'] = {
-                'path': path.relative_to(tiles_parent).as_posix(),
-                'mode': mode,
-                'landslide_density': get_percentage_intersection(
-                    t.cast(
-                        Polygon | MultiPolygon,
-                        from_geojson(json.dumps(feature['geometry'])),
-                    )
-                ),
-            }
-            return t.cast(Feature, feature)
-
-        def get_features(tif: Path) -> list[Feature]:
-            with rasterio.open(tif) as raster:
-                features = [
-                    process_feature(feature, tif)
-                    for feature in dataset_features(
-                        raster,
-                        bidx=1,
-                        as_mask=True,
-                        geographic=False,
-                        band=False,
-                    )
-                ]
-
-            return features
-
-        for i, image in enumerate(list(images)):
-            features = get_features(image)
-            if len(features) == 0:
+            if len(processed_features) == 0:
                 logger.error(
                     'Failed to process dataset feature for raster %r' % image
                 )
-            geojson['features'].extend(features)
+            geojson['features'].extend(processed_features)
         return cls(geojson_to_gdf(geojson), tiles_parent)
 
     @classmethod
@@ -167,7 +237,7 @@ class RasterTiles:
         mode: Mode,
         suffix: str = '.tif',
     ) -> t.Self:
-        with rasterio.open(raster) as src:
+        with rasterio.open(raster, mode='r') as src:
             metadata = src.meta.copy()
 
             def handle_window(input: tuple[windows.Window, t.Any]):
@@ -184,13 +254,12 @@ class RasterTiles:
                 with rasterio.open(out_filepath, 'w', **metadata) as dst:
                     dst.write(src.read(window=window))
 
-            for input in get_tiles(
-                src,
-                tile_size.rows,
-                tile_size.columns,
-                overlap,
+            for i in range(
+                get_tiles_length(src, tile_size.columns, tile_size.rows)
             ):
-                handle_window(input)
+                handle_window(
+                    get_tile(src, i, tile_size.columns, tile_size.rows)
+                )
 
         return cls.from_dir(out_dir, mode, suffix)
 
@@ -307,13 +376,37 @@ class RasterTiles:
         return out_file
 
 
+class ResizeTensor:
+    def __init__(self, size):
+        self.size = size
+
+    def __call__(self, img: Tensor) -> Tensor:
+        return functional.resize(img, self.size)
+
+
 def get_default_transform():
     return Compose(
         [
-            Resize((224, 224)),
             ToTensor(),
+            ResizeTensor((224, 224)),
             Lambda(lambda x: (x - x.min()) / (x.max() - x.min())),
             Normalize(mean=0.5, std=0.5),
+        ]
+    )
+
+
+def get_default_augument_transform():
+    return Compose(
+        [
+            RandomHorizontalFlip(p=0.5),
+            RandomApply(
+                [
+                    Lambda(
+                        lambda img: img.rotate(np.random.choice([90, 180, 270]))
+                    )
+                ],
+                p=1.0,
+            ),
         ]
     )
 
@@ -325,60 +418,145 @@ def get_default_loader(path: str) -> Image.Image:
         return img
 
 
-class LandslideClass(Enum):
-    NO_LANDSLIDE = 0
-    LANDSLIDE = 1
+def get_landslide_density_threshold(tile_size: TileSize) -> float:
+    """The LANDSLIDE_DENSITY_THRESHOLD is relative to the DEFAULT_TILE_SIZE."""
+    default_area = DEFAULT_TILE_SIZE * DEFAULT_TILE_SIZE
+    return LANDSLIDE_DENSITY_THRESHOLD * (
+        (tile_size.rows * tile_size.columns) / default_area
+    )
 
 
-class LandslideImageFolder(VisionDataset):
+class LandslideImages(Dataset):
     def __init__(
         self,
-        raster_tiles: RasterTiles,
-        loader: c.Callable[[str], t.Any] = get_default_loader,
+        grid: Grid,
+        tile_size: TileSize,
         landslide_density_threshold: float = LANDSLIDE_DENSITY_THRESHOLD,
         transforms: c.Callable | None = None,
         transform: c.Callable | None = None,
-        target_transform: c.Callable | None = None,
     ) -> None:
-        if transform is None:
-            transform = get_default_transform()
-        super().__init__(
-            raster_tiles.parent_dir, transforms, transform, target_transform
+        super().__init__()
+        self.grid = grid
+        self.landslide_density_threshold = landslide_density_threshold
+        self.tile_size = tile_size
+        self.transform = transform or get_default_transform()
+        self.transforms = transforms
+        self.mode = (
+            Mode.TRAIN
+            if grid.path.is_relative_to(GRIDS / 'train')
+            else Mode.TEST
         )
-        self.samples = self.make_dataset(
-            raster_tiles, landslide_density_threshold
-        )
-        self.loader = loader
+        if self.mode is Mode.TRAIN:
+            self.data_indices = self._get_data_indices()
 
-    def __getitem__(self, index: int) -> tuple[t.Any, t.Any]:
-        path, target = self.samples[index]
-        sample = self.loader(path)
-        if self.transform is not None:
-            sample = self.transform(sample)
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-        return sample, target
-
-    def __len__(self) -> int:
-        return len(self.samples)
+        # TODO FIX tile_size col rows
 
     @staticmethod
-    def make_dataset(
-        raster_tiles: RasterTiles,
-        landslide_density_threshold: float = 0.05,
-    ) -> list[tuple[str, int]]:
-        samples = []
-        for tile in raster_tiles.tiles.itertuples():
-            path = t.cast(str, tile.path)
-            density = t.cast(float, tile.landslide_density)
-            tile_path = raster_tiles.parent_dir / path
-            tile_class = (
-                LandslideClass.LANDSLIDE.value
-                if density >= landslide_density_threshold
-                else LandslideClass.NO_LANDSLIDE.value
+    def augment_tensor(tensor):
+        """Apply a random flip and/or 90-degree rotation."""
+        if np.random.random() < 0.5:
+            tensor = functional.hflip(tensor)
+        angle = np.random.choice([90, 180, 270])
+        tensor = functional.rotate(tensor, int(angle))
+        return tensor
+
+    def _get_data_indices(self):
+        start = time.perf_counter()
+        indices = {}
+
+        def handle_tile(i):
+            _, class_ = self._get_tile(i)
+            indices.setdefault(class_, []).append(i)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            executor.map(
+                handle_tile,
+                range(
+                    self.grid.get_tiles_length(
+                        self.tile_size.columns, self.tile_size.rows
+                    )
+                ),
             )
-            samples.append((tile_path.as_posix(), tile_class))
-        return samples
+
+        end = time.perf_counter()
+        logger.info(
+            'Took %f seconds to compute data indices for %r.Length of classes: %r'
+            % (
+                end - start,
+                self.tile_size,
+                {k: len(v) for k, v in indices.items()},
+            )
+        )
+        return indices
+
+    def __len__(self) -> int:
+        # return self.grid.get_tiles_length(
+        #     self.tile_size.columns, self.tile_size.rows
+        # )
+        if self.mode is Mode.TRAIN:
+            return max(map(len, self.data_indices.values())) * len(
+                self.data_indices
+            )  # Make the dataset balanced
+        elif self.mode == Mode.TEST:
+            return self.grid.get_tiles_length(
+                self.tile_size.columns, self.tile_size.rows
+            )
+        raise ValueError('Mode should only be "train" or "test"')
+
+    def _get_tile(self, index: int) -> tuple[torch.Tensor, int]:
+        metadata, arr, bounds = self.grid.get_tile(
+            index, self.tile_size.columns, self.tile_size.rows
+        )
+        # print(index, arr.shape)
+        # test_dir = INTERIM_DATA_DIR / 'test_dir'
+        # test_dir.mkdir(exist_ok=True)
+        # with rasterio.open(
+        #     test_dir / f'{tile_class}_{index}.tif', mode='w', **metadata
+        # ) as dst:
+        #     dst.write(tile)
+
+        tile_class = self._classify_tile(bounds)
+        tile = self.transform(arr.squeeze(0))
+        assert isinstance(tile, torch.Tensor)
+        return tile, tile_class
+
+    def _get_item_train(self, index: int) -> tuple[torch.Tensor, int]:
+        cls = index % len(self.data_indices)  # Cycle through classes
+        class_idx = index // len(self.data_indices)  # Which sample in the class
+        if class_idx >= len(self.data_indices[cls]):
+            # print(cls, class_idx, 'AUGUMENTED')
+            real_idx = np.random.choice(
+                self.data_indices[cls]
+            )  # Randomly sample from real images
+            tile, label = self._get_tile(real_idx)
+
+            tile = self.augment_tensor(tile)
+        else:
+            # print(cls, class_idx)
+            real_idx = self.data_indices[cls][class_idx]
+            tile, label = self._get_tile(real_idx)
+        return (tile, label)
+
+    def _get_item_test(self, index: int) -> tuple[torch.Tensor, int]:
+        return self._get_tile(index)
+
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
+        if self.mode is Mode.TRAIN:
+            return self._get_item_train(index)
+        elif self.mode is Mode.TEST:
+            return self._get_item_test(index)
+        raise ValueError('Mode should only be "train" or "test"')
+
+    def _classify_tile(self, bounds: Polygon) -> int:
+        """Classify the tile based on landslide density threshold."""
+        perc = get_percentage_intersection(
+            bounds, get_landslide_shapes(mode=self.mode)
+        )
+        threshold = get_landslide_density_threshold(self.tile_size)
+        if perc >= threshold:
+            return LandslideClass.LANDSLIDE.value
+        else:
+            return LandslideClass.NO_LANDSLIDE.value
 
 
 def get_dem_cell_size(raster: Path) -> tuple[float, float]:
@@ -387,9 +565,22 @@ def get_dem_cell_size(raster: Path) -> tuple[float, float]:
     return (x, y)
 
 
-class ImageFolders(t.TypedDict):
-    train: LandslideImageFolder
-    test: LandslideImageFolder
+def get_landslide_images_for_variable(
+    variable: GeomorphometricalVariable, tile_size: TileSize, mode: Mode
+) -> LandslideImages:
+    key = (variable, tile_size, mode)
+
+    # for cached_key in _cache:
+    #     if cached_key == key:
+    #         return _cache[cached_key]
+
+    # Compute and store if not found
+    result = LandslideImages(
+        Grid((GRIDS / mode.value / variable.value).with_suffix('.tif')),
+        tile_size,
+    )
+    # _cache[key] = result
+    return result
 
 
 T = t.TypeVar('T', bound=GeomorphometricalVariable)
@@ -399,26 +590,10 @@ def get_image_folders_for_variable(
     variable: T, tile_size: TileSize
 ) -> tuple[T, ImageFolders]:
     image_folders = {}
-    for mode in ('train', 'test'):
-        out_dir = (
-            (TRAIN_TILES if mode == 'train' else TEST_TILES)
-            / variable.value
-            / str(tile_size)
+    for mode in Mode:
+        image_folders[mode] = get_landslide_images_for_variable(
+            variable, tile_size, mode
         )
-        if False and out_dir.exists():
-            tiles = RasterTiles.from_dir(out_dir, mode)
-        else:
-            os.makedirs(out_dir, exist_ok=True)
-
-            grid = (GRIDS / mode / variable.value).with_suffix('.tif')
-            tiles = RasterTiles.from_raster(
-                grid,
-                tile_size,
-                overlap=0,
-                mode=mode,
-                out_dir=out_dir,
-            )
-        image_folders[mode] = LandslideImageFolder(tiles)
     return (variable, t.cast(ImageFolders, image_folders))
 
 

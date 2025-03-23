@@ -1,53 +1,21 @@
 from __future__ import annotations
 
-import os
+import json
 import typing as t
 from functools import cache
 
 import geopandas as gpd
+from shapely import MultiPolygon, Polygon, from_geojson
+from shapely.geometry.base import BaseGeometry
 
 from landnet.config import EPSG, RAW_DATA_DIR
+from landnet.enums import Mode
 
 if t.TYPE_CHECKING:
-    from shapely import Polygon
-
-PathLike = os.PathLike | str
-Mode = t.Literal['train', 'test']
+    from pathlib import Path
 
 
-class TileProperties(t.TypedDict):
-    path: str
-    mode: t.NotRequired[Mode]
-    landslide_density: t.NotRequired[float]
-
-
-class Geometry(t.TypedDict):
-    type: str
-    coordinates: list
-
-
-class Feature(t.TypedDict):
-    type: str
-    properties: TileProperties
-    geometry: Geometry
-    bbox: t.NotRequired[list[float]]
-
-
-class CRSProperties(t.TypedDict):
-    name: str
-
-
-class CRS(t.TypedDict):
-    type: str
-    properties: CRSProperties
-
-
-class GeoJSON(t.TypedDict):
-    """The GeoJSON representation of the DEM tile bounds."""
-
-    type: str
-    crs: t.NotRequired[CRS]
-    features: list[Feature]
+from landnet._typing import Feature, GeoJSON
 
 
 def get_empty_geojson() -> GeoJSON:
@@ -77,8 +45,49 @@ def geojson_to_gdf(geojson: GeoJSON) -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame.from_features(geojson['features'], crs=crs)
 
 
-def read_landslide_shapes(mode: Mode) -> gpd.GeoSeries:
+# @cache
+def get_landslide_shapes(mode: Mode) -> gpd.GeoSeries:
     return gpd.read_file(
         RAW_DATA_DIR / 'shapes.gpkg',
-        layer='landslides_train' if mode == 'train' else 'landslides_test',
+        layer='landslides_train' if mode is Mode.TRAIN else 'landslides_test',
     ).geometry
+
+
+def get_percentage_intersection(
+    feature: Polygon | MultiPolygon, other: gpd.GeoSeries
+) -> float:
+    intersection = other.intersection(feature).union_all()
+    intersection_area = intersection.area if not intersection.is_empty else 0
+    polygon_area = feature.area
+    if polygon_area == 0:
+        return 0
+    return intersection_area / polygon_area
+
+
+def feature_to_geojson(feature: dict[str, t.Any]) -> BaseGeometry:
+    return from_geojson(json.dumps(feature['geometry']))
+
+
+def process_feature(
+    feature: dict[str, t.Any], mode: Mode, path: Path, parent_dir: Path
+) -> Feature:
+    keys_to_remove = [
+        k
+        for k in feature
+        if k not in Feature.__required_keys__
+        and k not in Feature.__optional_keys__
+    ]
+    for k in keys_to_remove:
+        feature.pop(k)
+    feature['properties'] = {
+        'path': path.relative_to(parent_dir).as_posix(),
+        'mode': mode.value,
+        'landslide_density': get_percentage_intersection(
+            t.cast(
+                Polygon | MultiPolygon,
+                feature_to_geojson(feature),
+            ),
+            get_landslide_shapes(mode=mode),
+        ),
+    }
+    return t.cast(Feature, feature)
