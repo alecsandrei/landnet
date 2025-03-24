@@ -480,19 +480,17 @@ class LandslideImages(Dataset):
 
         end = time.perf_counter()
         logger.info(
-            'Took %f seconds to compute data indices for %r.Length of classes: %r'
+            'Took %f seconds to compute data indices for %r at mode=%r. Length of classes: %r'
             % (
                 end - start,
                 self.tile_size,
+                self.mode.value,
                 {k: len(v) for k, v in indices.items()},
             )
         )
         return indices
 
     def __len__(self) -> int:
-        # return self.grid.get_tiles_length(
-        #     self.tile_size.columns, self.tile_size.rows
-        # )
         if self.mode is Mode.TRAIN:
             return max(map(len, self.data_indices.values())) * len(
                 self.data_indices
@@ -507,14 +505,6 @@ class LandslideImages(Dataset):
         metadata, arr, bounds = self.grid.get_tile(
             index, self.tile_size.columns, self.tile_size.rows
         )
-        # print(index, arr.shape)
-        # test_dir = INTERIM_DATA_DIR / 'test_dir'
-        # test_dir.mkdir(exist_ok=True)
-        # with rasterio.open(
-        #     test_dir / f'{tile_class}_{index}.tif', mode='w', **metadata
-        # ) as dst:
-        #     dst.write(tile)
-
         tile_class = self._classify_tile(bounds)
         tile = self.transform(arr.squeeze(0))
         assert isinstance(tile, torch.Tensor)
@@ -524,7 +514,6 @@ class LandslideImages(Dataset):
         cls = index % len(self.data_indices)  # Cycle through classes
         class_idx = index // len(self.data_indices)  # Which sample in the class
         if class_idx >= len(self.data_indices[cls]):
-            # print(cls, class_idx, 'AUGUMENTED')
             real_idx = np.random.choice(
                 self.data_indices[cls]
             )  # Randomly sample from real images
@@ -532,7 +521,6 @@ class LandslideImages(Dataset):
 
             tile = self.augment_tensor(tile)
         else:
-            # print(cls, class_idx)
             real_idx = self.data_indices[cls][class_idx]
             tile, label = self._get_tile(real_idx)
         return (tile, label)
@@ -568,18 +556,10 @@ def get_dem_cell_size(raster: Path) -> tuple[float, float]:
 def get_landslide_images_for_variable(
     variable: GeomorphometricalVariable, tile_size: TileSize, mode: Mode
 ) -> LandslideImages:
-    key = (variable, tile_size, mode)
-
-    # for cached_key in _cache:
-    #     if cached_key == key:
-    #         return _cache[cached_key]
-
-    # Compute and store if not found
     result = LandslideImages(
         Grid((GRIDS / mode.value / variable.value).with_suffix('.tif')),
         tile_size,
     )
-    # _cache[key] = result
     return result
 
 

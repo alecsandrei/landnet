@@ -6,7 +6,7 @@ import logging
 import logging.config
 import typing as t
 
-from landnet.config import LOGGING_CONFIG
+from landnet.config import LOGGING_CONFIG, PROJ_ROOT
 
 LOG_RECORD_BUILTIN_ATTRS = {
     'args',
@@ -92,6 +92,9 @@ class ErrorFilter(logging.Filter):
 def setup_logging():
     with LOGGING_CONFIG.open() as f_in:
         config = json.load(f_in)
+    config['handlers']['landnetFile']['filename'] = (
+        PROJ_ROOT / config['handlers']['landnetFile']['filename']
+    ).as_posix()
     logging.config.dictConfig(config)
 
 

@@ -1,13 +1,8 @@
 from __future__ import annotations
 
 import os
-import typing as t
 import uuid
 from pathlib import Path
-
-if t.TYPE_CHECKING:
-    pass
-
 
 # Paths
 PROJ_ROOT = Path(__file__).resolve().parents[1]
