@@ -33,12 +33,12 @@ def device() -> torch.device:
 
 class ConfigSpec(t.TypedDict):
     batch_size: int
-    learning_rate: float
     tile_size: TileSize
+    learning_rate: t.NotRequired[float]
 
 
 class LandslideImageClassifier(pl.LightningModule):
-    def __init__(self, model: nn.Module, config: ConfigSpec):
+    def __init__(self, config: ConfigSpec, model: nn.Module):
         super().__init__()
         self.config = config
         self.model = model
@@ -102,11 +102,20 @@ class LandslideImageClassifier(pl.LightningModule):
         self.log('val_loss', loss, sync_dist=True)
         return loss
 
+    def test_step(self, test_batch, batch_idx):
+        x, y = test_batch
+        logits = self.forward(x)
+        self.test_metrics.update(logits, y)
+        loss = self.criterion(logits, y.float())
+        self.log_dict(self.test_metrics.compute(), sync_dist=True)
+        self.log('test_loss', loss, sync_dist=True)
+
     def on_validation_epoch_end(self):
         self.log_dict(self.val_metrics.compute(), sync_dist=True)
         self.val_metrics.reset()
 
     def configure_optimizers(self):
+        assert 'learning_rate' in self.config
         optimizer = torch.optim.Adam(
             self.parameters(), lr=self.config['learning_rate']
         )
@@ -125,7 +134,7 @@ class LandslideImageDataModule(pl.LightningDataModule):
         self.config = config
         self.variables = variables
 
-    def setup(self, stage=None):
+    def train_dataloader(self):
         self.train_dataset = ConcatDataset(
             ray.get(
                 [
@@ -139,18 +148,6 @@ class LandslideImageDataModule(pl.LightningDataModule):
         self.train_dataset, self.validation_dataset = random_split(
             self.train_dataset, (0.7, 0.3)
         )
-        self.test_dataset = ConcatDataset(
-            ray.get(
-                [
-                    self.cacher.setdefault.remote(  # type: ignore
-                        variable, self.config['tile_size'], Mode.TEST
-                    )
-                    for variable in self.variables
-                ]
-            )
-        )
-
-    def train_dataloader(self):
         return DataLoader(
             self.train_dataset,
             batch_size=self.config['batch_size'],
@@ -169,6 +166,16 @@ class LandslideImageDataModule(pl.LightningDataModule):
         )
 
     def test_dataloader(self):
+        self.test_dataset = ConcatDataset(
+            ray.get(
+                [
+                    self.cacher.setdefault.remote(  # type: ignore
+                        variable, self.config['tile_size'], Mode.TEST
+                    )
+                    for variable in self.variables
+                ]
+            )
+        )
         return DataLoader(
             self.test_dataset,
             batch_size=self.config['batch_size'],
@@ -187,14 +194,18 @@ class LandslideImagesCacher:
 
     def __init__(self):
         self.map: dict[  # type: ignore
-            TileSize, dict[GeomorphometricalVariable, LandslideImages]
+            TileSize,
+            dict[GeomorphometricalVariable, dict[Mode, LandslideImages]],
         ] = {}
 
     def get(
-        self, tile_size: TileSize, variable: GeomorphometricalVariable
+        self,
+        tile_size: TileSize,
+        mode: Mode,
+        variable: GeomorphometricalVariable,
     ) -> LandslideImages | None:
         try:
-            return self.map[tile_size][variable]
+            return self.map[tile_size][variable][mode]
         except KeyError:
             return None
 
@@ -204,22 +215,29 @@ class LandslideImagesCacher:
         tile_size: TileSize,
         mode: Mode,
     ) -> LandslideImages:
-        map_ = self.map.setdefault(tile_size, {})
-        if variable not in map_:
-            map_[variable] = get_landslide_images_for_variable(
+        map_ = self.map.setdefault(tile_size, {}).setdefault(variable, {})
+        if mode not in map_:
+            logger.info('%r' % mode)
+            map_[mode] = get_landslide_images_for_variable(
                 variable, tile_size, mode
             )
-        return map_[variable]
+        return map_[mode]
 
     def set(
         self,
         tile_size: TileSize,
         variable: GeomorphometricalVariable,
         landslide_images: LandslideImages,
+        mode: Mode,
     ) -> None:
-        self.map.setdefault(tile_size, {})[variable] = landslide_images
+        self.map.setdefault(tile_size, {}).setdefault(variable, {})[mode] = (
+            landslide_images
+        )
 
     def to_map(
         self,
-    ) -> dict[TileSize, dict[GeomorphometricalVariable, LandslideImages]]:
+    ) -> dict[
+        TileSize,
+        dict[GeomorphometricalVariable, dict[Mode, LandslideImages]],
+    ]:
         return self.map
