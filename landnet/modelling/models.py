@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pickle
 import typing as t
 
 import torchvision.models
@@ -11,6 +12,8 @@ from landnet.logger import create_logger
 from landnet.modelling.train import device
 
 if t.TYPE_CHECKING:
+    from pathlib import Path
+
     from torchvision.models import AlexNet
 
 logger = create_logger(__name__)
@@ -81,4 +84,14 @@ def resnet50kan() -> nn.Sequential:
     conv_1x1 = nn.Conv2d(1, 3, kernel_size=1, stride=1, padding=0)
     model = nn.Sequential(conv_1x1, kcn, nn.Sigmoid())
     model.to(device())
+    return model
+
+
+T = t.TypeVar('T', bound=nn.Module)
+
+
+def read_legacy_checkpoint(model: T, checkpoint: Path) -> T:
+    with checkpoint.open(mode='rb') as fp:
+        model_data = pickle.load(fp)
+    model.load_state_dict(model_data['net_state_dict'])
     return model

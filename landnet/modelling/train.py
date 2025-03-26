@@ -16,7 +16,11 @@ from landnet.features.tiles import (
     TileSize,
     get_landslide_images_for_variable,
 )
+from landnet.logger import create_logger
+from landnet.modelling.models import read_legacy_checkpoint
 from landnet.modelling.stats import BinaryClassificationMetricCollection
+
+logger = create_logger(__name__)
 
 
 @cache
@@ -45,6 +49,37 @@ class LandslideImageClassifier(pl.LightningModule):
 
         self.val_metrics = self.train_metrics.clone(prefix='val_')
         self.test_metrics = self.train_metrics.clone(prefix='test_')
+
+    @classmethod
+    def load_from_checkpoint(
+        cls,
+        checkpoint_path,
+        map_location=None,
+        hparams_file=None,
+        strict=None,
+        model: nn.Module | None = None,
+        config: ConfigSpec | None = None,
+        **kwargs: t.Any,
+    ) -> t.Self:
+        try:
+            return super().load_from_checkpoint(
+                checkpoint_path=checkpoint_path,
+                map_location=map_location,
+                hparams_file=hparams_file,
+                strict=strict,
+                **kwargs,
+            )
+        except Exception as e:
+            logger.error(
+                'Failed to load the checkpoint at %s with %e. Attempting the legacy way.'
+                % (e, checkpoint_path)
+            )
+            if model is None or config is None:
+                raise ValueError(
+                    'Will not attempt reading the checkpoint in a legacy way.'
+                )
+            model = read_legacy_checkpoint(model, checkpoint_path)
+            return cls(config=config, model=model)
 
     def forward(self, x):
         return self.model(x).flatten()
