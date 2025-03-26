@@ -41,6 +41,7 @@ PRETRAINED = bool(os.getenv('PRETRAINED', 1))
 EPOCHS = int(os.getenv('EPOCHS', 10))
 GPUS = int(os.getenv('GPUS', 1))
 CPUS = int(os.getenv('CPUS', 4))
+BATCH_SIZE = int(os.getenv('BATCH_SIZE', 4))
 NUM_SAMPLES = int(
     os.getenv('NUM_SAMPLES', 10)
 )  # Number of models to train with ray for hyperparameter tuning
