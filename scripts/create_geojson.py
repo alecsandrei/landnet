@@ -12,6 +12,7 @@ from landnet.config import (
     TEST_TILES,
     TRAIN_TILES,
 )
+from landnet.enums import Mode
 
 if t.TYPE_CHECKING:
     from landnet.dataset import GeoJSON
@@ -22,8 +23,8 @@ if __name__ == '__main__':
         'crs': {'type': 'name', 'properties': {'name': 'EPSG:3844'}},
         'features': [],
     }
-    for mode in ('train', 'test'):
-        path = (TRAIN_TILES if mode == 'train' else TEST_TILES) / 'dem'
+    for mode in Mode:
+        path = (TRAIN_TILES if mode is Mode.TRAIN else TEST_TILES) / 'dem'
         landslide_density_df = pd.read_csv(
             RAW_DATA_DIR / f'{mode}_landslide_density.csv'
         )
@@ -40,7 +41,7 @@ if __name__ == '__main__':
                     {
                         'type': 'Feature',
                         'properties': {
-                            'mode': mode,
+                            'mode': mode.value,
                             'image_id': image_id,
                             'landslide_density': landslide_density,
                         },

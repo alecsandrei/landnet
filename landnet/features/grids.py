@@ -8,6 +8,7 @@ from PySAGA_cmd.saga import SAGA
 
 from landnet.config import (
     GRIDS,
+    INFERENCE_TILES,
     INTERIM_DATA_DIR,
     TEST_TILES,
     TRAIN_TILES,
@@ -35,6 +36,7 @@ class TerrainAnalysis:
         infer_obj_type: bool,
         ignore_stderr: bool,
         dem_edge: PathLike | None = None,
+        variables: c.Sequence[GeomorphometricalVariable] | None = None,
     ):
         self.dem = Path(dem)
         self.dem_edge = Path(dem_edge) if dem_edge is not None else None
@@ -46,8 +48,9 @@ class TerrainAnalysis:
         self.verbose = verbose
         self.infer_obj_type = infer_obj_type
         self.ignore_stderr = ignore_stderr
+        self.variables = variables
 
-        self.tools: list[c.Callable[..., ToolOutput]] = [
+        self.tools: list[c.Callable[..., ToolOutput | None]] = [
             self.analytical_hillshading,
             self.index_of_convergence,
             self.terrain_surface_convexity,
@@ -67,7 +70,7 @@ class TerrainAnalysis:
             self.topographic_wetness_index,
         ]
 
-    def execute(self) -> c.Generator[tuple[str, ToolOutput]]:
+    def execute(self) -> c.Generator[tuple[str, ToolOutput | None]]:
         for tool in self.tools:
             yield (tool.__name__, tool())
 
@@ -87,27 +90,40 @@ class TerrainAnalysis:
     def hydrology(self) -> Library:
         return self.saga / 'ta_hydrology'
 
-    def get_out_path(self, variable: GeomorphometricalVariable) -> Path:
-        return (GRIDS / self.mode.value / variable.value).with_suffix('.tif')
+    def get_out_path(self, variable: GeomorphometricalVariable) -> Path | None:
+        if self.should_compute(variable):
+            return (self.dem.parent / variable.value).with_suffix('.tif')
+        return None
 
-    def index_of_convergence(self) -> ToolOutput:
+    def should_compute(self, variable: GeomorphometricalVariable) -> bool:
+        return self.variables is None or variable in self.variables
+
+    def index_of_convergence(self) -> ToolOutput | None:
         """Requires 1 or 2 units of buffer depending on the neighbours parameter."""
+        if not self.should_compute(
+            GeomorphometricalVariable.INDEX_OF_CONVERGENCE
+        ):
+            return None
         tool = self.morphometry / 'Convergence Index'
         dem = self.dem_edge if self.dem_edge is not None else self.dem
         return tool.execute(
-            elevation=dem,
-            result=self.get_out_path(
-                GeomorphometricalVariable.INDEX_OF_CONVERGENCE
-            ),
+            dem=dem,
             method=0,
             neighbours=0,
             verbose=self.verbose,
             infer_obj_type=self.infer_obj_type,
             ignore_stderr=self.ignore_stderr,
+            result=self.get_out_path(
+                GeomorphometricalVariable.INDEX_OF_CONVERGENCE
+            ),
         )
 
-    def terrain_surface_convexity(self) -> ToolOutput:
+    def terrain_surface_convexity(self) -> ToolOutput | None:
         """Requires 1 unit of buffer."""
+        if not self.should_compute(
+            GeomorphometricalVariable.TERRAIN_SURFACE_CONVEXITY
+        ):
+            return None
         tool = self.morphometry / 'Terrain Surface Convexity'
         dem = self.dem_edge if self.dem_edge is not None else self.dem
         return tool.execute(
@@ -128,7 +144,9 @@ class TerrainAnalysis:
             ignore_stderr=self.ignore_stderr,
         )
 
-    def analytical_hillshading(self) -> ToolOutput:
+    def analytical_hillshading(self) -> ToolOutput | None:
+        if not self.should_compute(GeomorphometricalVariable.HILLSHADE):
+            return None
         tool = self.lighting / 'Analytical Hillshading'
         return tool.execute(
             elevation=self.dem,
@@ -139,34 +157,62 @@ class TerrainAnalysis:
             ignore_stderr=self.ignore_stderr,
         )
 
-    def topographic_openness(self) -> ToolOutput:
+    def topographic_openness(self) -> ToolOutput | None:
         """Uses radius / resolution units of buffer."""
-        tool = self.lighting / 'Topographic Openness'
-        return tool.execute(
-            dem=self.dem,
-            pos=self.get_out_path(
+        if not any(
+            self.should_compute(variable)
+            for variable in (
                 GeomorphometricalVariable.POSITIVE_TOPOGRAPHIC_OPENNESS,
-            ),
-            neg=self.get_out_path(
                 GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
+            )
+        ):
+            return None
+        tool = self.lighting / 'Topographic Openness'
+        kwargs = {
+            'dem': self.dem,
+            'radius': 100,
+            'directions': 1,
+            'direction': 315,
+            'ndirs': 8,
+            'method': 0,
+            'dlevel': 3.0,
+            'unit': 0,
+            'nadir': 1,
+            'verbose': self.verbose,
+            'infer_obj_type': self.infer_obj_type,
+            'ignore_stderr': self.ignore_stderr,
+            'pos': self.get_out_path(
+                GeomorphometricalVariable.POSITIVE_TOPOGRAPHIC_OPENNESS
             ),
-            radius=100,
-            directions=1,
-            direction=315,
-            ndirs=8,
-            method=0,
-            dlevel=3.0,
-            unit=0,
-            nadir=1,
-            verbose=self.verbose,
-            infer_obj_type=self.infer_obj_type,
-            ignore_stderr=self.ignore_stderr,
-        )
+            'neg': self.get_out_path(
+                GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS
+            ),
+        }
+        return tool.execute(**kwargs)
 
-    def slope_aspect_curvature(self) -> ToolOutput:
-        """Requires 1 unit of buffer.
+    def slope_aspect_curvature(self) -> ToolOutput | None:
+        """Requires 1 unit of buffer."""
+        if not any(
+            self.should_compute(variable)
+            for variable in (
+                GeomorphometricalVariable.ASPECT,
+                GeomorphometricalVariable.NORTHNESS,
+                GeomorphometricalVariable.EASTNESS,
+                GeomorphometricalVariable.SLOPE,
+                GeomorphometricalVariable.GENERAL_CURVATURE,
+                GeomorphometricalVariable.PROFILE_CURVATURE,
+                GeomorphometricalVariable.PLAN_CURVATURE,
+                GeomorphometricalVariable.TANGENTIAL_CURVATURE,
+                GeomorphometricalVariable.LONGITUDINAL_CURVATURE,
+                GeomorphometricalVariable.CROSS_SECTIONAL_CURVATURE,
+                GeomorphometricalVariable.MINIMAL_CURVATURE,
+                GeomorphometricalVariable.MAXIMAL_CURVATURE,
+                GeomorphometricalVariable.TOTAL_CURVATURE,
+                GeomorphometricalVariable.FLOW_LINE_CURVATURE,
+            )
+        ):
+            return None
 
-        TODO: Add Northness and Eastness"""
         tool = self.morphometry / 'Slope, Aspect, Curvature'
         dem = self.dem_edge if self.dem_edge is not None else self.dem
         return tool.execute(
@@ -209,8 +255,10 @@ class TerrainAnalysis:
             ignore_stderr=self.ignore_stderr,
         )
 
-    def real_surface_area(self) -> ToolOutput:
+    def real_surface_area(self) -> ToolOutput | None:
         tool = self.morphometry / 'Real Surface Area'
+        if not self.should_compute(GeomorphometricalVariable.REAL_SURFACE_AREA):
+            return None
         return tool.execute(
             dem=self.dem,
             area=self.get_out_path(GeomorphometricalVariable.REAL_SURFACE_AREA),
@@ -219,7 +267,11 @@ class TerrainAnalysis:
             ignore_stderr=self.ignore_stderr,
         )
 
-    def wind_exposition_index(self) -> ToolOutput:
+    def wind_exposition_index(self) -> ToolOutput | None:
+        if not self.should_compute(
+            GeomorphometricalVariable.WIND_EXPOSITION_INDEX
+        ):
+            return None
         tool = self.morphometry / 'Wind Exposition Index'
         return tool.execute(
             dem=self.dem,
@@ -236,8 +288,12 @@ class TerrainAnalysis:
             ignore_stderr=self.ignore_stderr,
         )
 
-    def topographic_position_index(self) -> ToolOutput:
+    def topographic_position_index(self) -> ToolOutput | None:
         """Uses radius_max / resolution units of buffer."""
+        if not self.should_compute(
+            GeomorphometricalVariable.TOPOGRAPHIC_POSITION_INDEX
+        ):
+            return None
         tool = self.morphometry / 'Topographic Position Index (TPI)'
         return tool.execute(
             dem=self.dem,
@@ -253,7 +309,9 @@ class TerrainAnalysis:
             ignore_stderr=self.ignore_stderr,
         )
 
-    def valley_depth(self) -> ToolOutput:
+    def valley_depth(self) -> ToolOutput | None:
+        if not self.should_compute(GeomorphometricalVariable.VALLEY_DEPTH):
+            return None
         tool = self.channels / 'Valley Depth'
         return tool.execute(
             elevation=self.dem,
@@ -269,8 +327,12 @@ class TerrainAnalysis:
             ignore_stderr=self.ignore_stderr,
         )
 
-    def terrain_ruggedness_index(self) -> ToolOutput:
+    def terrain_ruggedness_index(self) -> ToolOutput | None:
         """Uses radius units of buffer."""
+        if not self.should_compute(
+            GeomorphometricalVariable.TERRAIN_RUGGEDNESS_INDEX
+        ):
+            return None
         tool = self.morphometry / 'Terrain Ruggedness Index (TRI)'
         dem = self.dem_edge if self.dem_edge is not None else self.dem
         return tool.execute(
@@ -288,8 +350,12 @@ class TerrainAnalysis:
             ignore_stderr=self.ignore_stderr,
         )
 
-    def vector_ruggedness_measure(self) -> ToolOutput:
+    def vector_ruggedness_measure(self) -> ToolOutput | None:
         """Uses radius units of buffer."""
+        if not self.should_compute(
+            GeomorphometricalVariable.VECTOR_RUGGEDNESS_MEASURE
+        ):
+            return None
         tool = self.morphometry / 'Vector Ruggedness Measure (VRM)'
         dem = self.dem_edge if self.dem_edge is not None else self.dem
         return tool.execute(
@@ -307,8 +373,19 @@ class TerrainAnalysis:
             ignore_stderr=self.ignore_stderr,
         )
 
-    def upslope_and_downslope_curvature(self) -> ToolOutput:
+    def upslope_and_downslope_curvature(self) -> ToolOutput | None:
         """Uses one unit of buffer."""
+        if not any(
+            self.should_compute(variable)
+            for variable in (
+                GeomorphometricalVariable.LOCAL_CURVATURE,
+                GeomorphometricalVariable.UPSLOPE_CURVATURE,
+                GeomorphometricalVariable.LOCAL_UPSLOPE_CURVATURE,
+                GeomorphometricalVariable.DOWNSLOPE_CURVATURE,
+                GeomorphometricalVariable.LOCAL_DOWNSLOPE_CURVATURE,
+            )
+        ):
+            return None
         tool = self.morphometry / 'Upslope and Downslope Curvature'
         dem = self.dem_edge if self.dem_edge is not None else self.dem
         return tool.execute(
@@ -333,6 +410,8 @@ class TerrainAnalysis:
         )
 
     def flow_accumulation_parallelizable(self) -> ToolOutput:
+        if not self.should_compute(GeomorphometricalVariable.FLOW_ACCUMULATION):
+            return None
         tool = self.hydrology / 'Flow Accumulation (Parallelizable)'
         return tool.execute(
             dem=self.dem,
@@ -345,7 +424,9 @@ class TerrainAnalysis:
             ignore_stderr=self.ignore_stderr,
         )
 
-    def flow_path_length(self) -> ToolOutput:
+    def flow_path_length(self) -> ToolOutput | None:
+        if not self.should_compute(GeomorphometricalVariable.FLOW_PATH_LENGTH):
+            return None
         tool = self.hydrology / 'Flow Path Length'
         return tool.execute(
             elevation=self.dem,
@@ -361,7 +442,9 @@ class TerrainAnalysis:
             ignore_stderr=self.ignore_stderr,
         )
 
-    def slope_length(self) -> ToolOutput:
+    def slope_length(self) -> ToolOutput | None:
+        if not self.should_compute(GeomorphometricalVariable.SLOPE_LENGTH):
+            return None
         tool = self.hydrology / 'Slope Length'
         return tool.execute(
             dem=self.dem,
@@ -371,7 +454,9 @@ class TerrainAnalysis:
             ignore_stderr=self.ignore_stderr,
         )
 
-    def cell_balance(self) -> ToolOutput:
+    def cell_balance(self) -> ToolOutput | None:
+        if not self.should_compute(GeomorphometricalVariable.CELL_BALANCE):
+            return None
         tool = self.hydrology / 'Cell Balance'
         return tool.execute(
             dem=self.dem,
@@ -384,7 +469,11 @@ class TerrainAnalysis:
             ignore_stderr=self.ignore_stderr,
         )
 
-    def topographic_wetness_index(self) -> ToolOutput:
+    def topographic_wetness_index(self) -> ToolOutput | None:
+        if not self.should_compute(
+            GeomorphometricalVariable.TOPOGRAPHIC_WETNESS_INDEX
+        ):
+            return None
         tool = self.hydrology / 'twi'
         return tool.execute(
             dem=self.dem,
@@ -444,6 +533,7 @@ def compute_grids_for_dem(
     dem: Path,
     saga: SAGA,
     mode: Mode,
+    variables: c.Sequence[GeomorphometricalVariable] | None = None,
 ):
     for tool_name, _ in TerrainAnalysis(
         dem,
@@ -452,14 +542,27 @@ def compute_grids_for_dem(
         verbose=False,
         infer_obj_type=False,
         ignore_stderr=False,
+        variables=variables,
     ).execute():
         logger.info('%s finished executing for %r' % (tool_name, mode))
 
 
-def compute_grids(tiles: RasterTiles, mode: Mode, saga: SAGA):
-    tiles_dir = TRAIN_TILES if mode is Mode.TRAIN else TEST_TILES
+def compute_grids(
+    tiles: RasterTiles,
+    mode: Mode,
+    saga: SAGA,
+    out_dir: Path | None = None,
+    variables: c.Sequence[GeomorphometricalVariable] | None = None,
+):
+    dir_map = {
+        Mode.TRAIN: TRAIN_TILES,
+        Mode.TEST: TEST_TILES,
+        Mode.INFERENCE: INFERENCE_TILES,
+    }
+    if out_dir is None:
+        out_dir = dir_map[mode] / 'dem' / '100x100'
     logger.debug('Resampling %r for %sing' % (tiles, mode))
-    resampled = tiles.resample(tiles_dir / 'dem' / '100x100', mode)
+    resampled = tiles.resample(out_dir, mode)
     logger.debug('Merging %r for %sing' % (resampled, mode))
     merged = resampled.merge(GRIDS / mode.value / 'dem.tif')
-    compute_grids_for_dem(merged, saga, mode)
+    compute_grids_for_dem(merged, saga, mode, variables)

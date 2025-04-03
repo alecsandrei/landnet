@@ -2,20 +2,50 @@ from __future__ import annotations
 
 import json
 import typing as t
+from dataclasses import dataclass
 from functools import cache
 
 import geopandas as gpd
-from shapely import MultiPolygon, Polygon, from_geojson
+import numpy as np
+from shapely import MultiPolygon, Polygon, box, from_geojson
 from shapely.geometry.base import BaseGeometry
 
+from landnet._typing import Feature, GeoJSON
 from landnet.config import EPSG, RAW_DATA_DIR
 from landnet.enums import Mode
 
 if t.TYPE_CHECKING:
     from pathlib import Path
 
+    from landnet.features.tiles import Grid
 
-from landnet._typing import Feature, GeoJSON
+
+@dataclass
+class Fishnet:
+    reference_geometry: Polygon
+    rows: int
+    cols: int
+
+    def generate_grid(self, buffer: float | None = None) -> list[Polygon]:
+        """Generates a grid of polygons within the reference geometry."""
+        minx, miny, maxx, maxy = self.reference_geometry.bounds
+        cell_width = (maxx - minx) / self.cols
+        cell_height = (maxy - miny) / self.rows
+
+        grid = []
+        for i in range(self.rows):
+            for j in range(self.cols):
+                cell_minx = minx + j * cell_width
+                cell_maxx = cell_minx + cell_width
+                cell_miny = miny + i * cell_height
+                cell_maxy = cell_miny + cell_height
+                cell = box(cell_minx, cell_miny, cell_maxx, cell_maxy)
+                if self.reference_geometry.intersects(cell):
+                    if buffer:
+                        cell = cell.buffer(buffer, join_style='mitre')
+                    grid.append(cell.intersection(self.reference_geometry))
+
+        return grid
 
 
 def get_empty_geojson() -> GeoJSON:
@@ -28,8 +58,11 @@ def get_empty_geojson() -> GeoJSON:
 
 @cache
 def get_dem_tiles() -> gpd.GeoDataFrame:
-    # Respects the GeoJSON type defined in this module
-    return gpd.read_file(RAW_DATA_DIR / 'dem_tiles.geojson')
+    dem_tiles = gpd.read_file(RAW_DATA_DIR / 'dem_tiles.geojson')
+    path_split = dem_tiles['path'].str.split('/')
+    dem_tiles['id1'] = path_split.str.get(0)
+    dem_tiles['id2'] = path_split.str.get(1)
+    return dem_tiles
 
 
 def get_tile_relative_path(
@@ -91,3 +124,28 @@ def process_feature(
         ),
     }
     return t.cast(Feature, feature)
+
+
+def logits_to_dem_tiles(
+    logits: np.ndarray, y: np.ndarray, mode: Mode, grid: Grid
+) -> gpd.GeoDataFrame:
+    landslide_density = grid.get_landslide_percentage_intersection(
+        list(range(grid.get_tiles_length())), mode=mode
+    )
+    assert len(y) == landslide_density.shape[0]
+    assert len(logits) == landslide_density.shape[0]
+
+    landslide_density['logits'] = logits
+    landslide_density['y'] = y
+    yhat = logits.round()
+
+    conditions = [
+        (yhat == 1) & (y == 1),  # tp
+        (yhat == 1) & (y == 0),  # fp
+        (yhat == 0) & (y == 0),  # tn
+        (yhat == 0) & (y == 1),  # fn
+    ]
+    labels = np.select(conditions, ['tp', 'fp', 'tn', 'fn'], default='unknown')
+    landslide_density['yhat'] = labels
+
+    return landslide_density

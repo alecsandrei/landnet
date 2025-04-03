@@ -17,6 +17,7 @@ from torch import nn
 from torch.utils.data import ConcatDataset, DataLoader
 from torchvision.datasets import ImageFolder
 
+from landnet._vendor.kcn import ConvNeXtKAN, ResNetKAN
 from landnet.config import (
     ARCHITECTURE,
     EPOCHS,
@@ -28,11 +29,12 @@ from landnet.config import (
     PRETRAINED,
     TEST_TILES,
 )
+from landnet.enums import LandslideClass
 from landnet.features.grids import GeomorphometricalVariable
 from landnet.features.tiles import (
-    LandslideClass,
     LandslideImages,
     TileSize,
+    get_default_transform,
     get_image_folders_for_variable,
 )
 from landnet.logger import create_logger
@@ -54,13 +56,26 @@ logger = create_logger(__name__)
 
 
 TILE_SIZE = TileSize(100, 100)
-BATCH_SIZE = 32
-LEARNING_RATE = 0.00001
+BATCH_SIZE = 8
+LEARNING_RATE = 0.000097
 
 
 def pil_loader(path: str, size: tuple[int, int]) -> Image.Image:
     with open(path, 'rb') as f:
         return Image.open(f).resize(size)
+
+
+def convnextkan() -> nn.Sequential:
+    weights = None
+    if PRETRAINED:
+        weights = torchvision.models.ConvNeXt_Base_Weights.DEFAULT
+    convnext = torchvision.models.convnext_base(weights=weights)
+    conv_1x1 = nn.Conv2d(1, 3, kernel_size=1, stride=1, padding=0)
+    convnext.classifier[2] = nn.Linear(1024, 1, bias=True)
+    kcn = ConvNeXtKAN(convnext)
+    model = nn.Sequential(conv_1x1, kcn, nn.Sigmoid())
+    model.to(device())
+    return model
 
 
 def alexnet() -> AlexNet:
@@ -100,11 +115,25 @@ def convnext():
     return model
 
 
-def get_train_datasets(image_folders: c.Sequence[LandslideImages]):
+def resnet50kan() -> nn.Sequential:
+    weights = None
+    if PRETRAINED:
+        weights = torchvision.models.ResNet50_Weights.DEFAULT
+        logger.info('Set weights to %r' % weights)
+    resnet50 = torchvision.models.resnet50(weights=weights)
+    resnet50.fc = nn.Linear(2048, 1, bias=True)
+    kcn = ResNetKAN(resnet50)
+    conv_1x1 = nn.Conv2d(1, 3, kernel_size=1, stride=1, padding=0)
+    model = nn.Sequential(conv_1x1, kcn, nn.Sigmoid())
+    model.to(device())
+    return model
+
+
+def get_train_datasets(image_folder: LandslideImages):
     # transform = get_transform()
     # loader = partial(pil_loader, size=(tile_size.rows, tile_size.columns))
-    train_image_folder: ConcatDataset[ImageFolder] = ConcatDataset(
-        image_folders
+    train_image_folder: ConcatDataset[LandslideImages] = ConcatDataset(
+        [image_folder]
     )
     train_dataset, validation_dataset = torch.utils.data.random_split(
         train_image_folder, (0.7, 0.3)
@@ -113,12 +142,32 @@ def get_train_datasets(image_folders: c.Sequence[LandslideImages]):
 
 
 def get_train_loaders(
-    image_folders: c.Sequence[LandslideImages],
+    image_folder: LandslideImages,
     batch_size: int,
 ) -> tuple[DataLoader, DataLoader]:
-    train_dataset, validation_dataset = get_train_datasets(image_folders)
+    train_dataset, validation_dataset = get_train_datasets(image_folder)
+    # labels = [
+    #     sample[1] for sample in train_dataset
+    # ]  # Assuming dataset returns (image, label)
+    # class_counts = collections.Counter(labels)
+    # num_samples = len(labels)
+
+    # # Compute class weights
+    # class_weights = {
+    #     cls: num_samples / count for cls, count in class_counts.items()
+    # }
+
+    # # Compute sample weights
+    # sample_weights = [class_weights[label] for label in labels]
+
+    # # Create WeightedRandomSampler
+    # sampler = WeightedRandomSampler(
+    #     sample_weights, num_samples=batch_size, replacement=True
+    # )
+
     train_loader = DataLoader(
         train_dataset,
+        # sampler=sampler,
         batch_size=batch_size,
         shuffle=True,
         num_workers=4,
@@ -144,7 +193,9 @@ def get_test_loader(test_folders: Path | c.Sequence[Path], batch_size):
     loader = partial(pil_loader, size=(100, 100))
 
     def get_image_folder(folder: Path):
-        image_folder = ImageFolder(folder, get_transform(), loader=loader)
+        image_folder = ImageFolder(
+            folder, get_default_transform(), loader=loader
+        )
         image_folder.imgs.sort(key=get_tile_number_from_image)
         return image_folder
 
@@ -172,7 +223,7 @@ def train(grids: Path | c.Sequence[Path]):
         for grid in grids
     ]
     train_loader, validation_loader = get_train_loaders(
-        [folder['train'] for _, folder in image_folders], BATCH_SIZE
+        image_folders[0][1]['train'], BATCH_SIZE
     )
     model: nn.Module = MODEL()
     loss_fn = nn.BCELoss()
@@ -206,7 +257,7 @@ def train_models():
 
     train_grids = GRIDS / 'train'
     test_grids = GRIDS / 'test'
-    grids = ['shade']
+    grids = ['slope']
     for train_grid in train_grids.glob('*.tif'):
         if train_grid.stem not in grids:
             continue

@@ -4,10 +4,22 @@ import os
 import typing as t
 
 if t.TYPE_CHECKING:
-    from landnet.features.tiles import LandslideImages
+    from torch.utils.data import Subset
+
+    from landnet.features.tiles import (
+        ConcatLandslideImages,
+        LandslideImages,
+        TileConfig,
+    )
 
 Metadata = dict[str, t.Any]
 PathLike = os.PathLike | str
+
+type LandslideDataset = LandslideImages | ConcatLandslideImages
+type AnyLandslideDataset = LandslideDataset | Subset[LandslideDataset]
+type TrainTestValidation = tuple[
+    AnyLandslideDataset, AnyLandslideDataset, LandslideDataset
+]
 
 
 class ImageFolders(t.TypedDict):
@@ -48,3 +60,9 @@ class GeoJSON(t.TypedDict):
     type: str
     crs: t.NotRequired[CRS]
     features: list[Feature]
+
+
+class TuneSpace(t.TypedDict):
+    batch_size: int
+    tile_config: TileConfig
+    learning_rate: t.NotRequired[float]

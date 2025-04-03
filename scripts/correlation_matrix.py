@@ -1,43 +1,57 @@
 from __future__ import annotations
 
-import itertools
-from functools import partial
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import plotly.express as px
-from PIL import Image
+import rasterio
+from torchvision.datasets import ImageFolder
 
-from landnet import features
-from landnet.config import FIGURES_DIR, TEST_TILES, TRAIN_TILES
-from landnet.modelling import stats
+from landnet.config import FIGURES_DIR, GRIDS
+from landnet.enums import Mode
+from landnet.features.tiles import TileConfig, TileHandler, TileSize
 from landnet.plots import get_correlation_matrix_plot
 
 
-def pil_loader(path: str, size: tuple[int, int]) -> Image.Image:
-    with open(path, 'rb') as f:
-        return Image.open(f).resize(size)
+def rasterio_loader(path):
+    with rasterio.open(path, nodata=-99999.0) as raster:
+        print(raster.width, raster.height)
+        return raster.read(1)
 
 
 def to_image_folder(path: Path):
-    loader = partial(pil_loader, size=(100, 100))
-    return features.LandslideImageFolder(
+    # loader = partial(pil_loader, size=(100, 100))
+    return ImageFolder(
         root=path,
-        transform=features.get_default_transform(),
-        loader=loader,
+        # transform=get_default_transform(),
+        loader=rasterio_loader,
     )
 
 
 if __name__ == '__main__':
-    folders = map(
-        to_image_folder,
-        itertools.chain(
-            [path for path in TRAIN_TILES.iterdir() if path.is_dir()],
-            [path for path in TEST_TILES.iterdir() if path.is_dir()],
-        ),
-    )
+    config = TileConfig(TileSize(100, 100))
+    grids = list((GRIDS / Mode.TRAIN.value).glob('*.tif'))
+    data_map: dict[str, np.ndarray] = {}
+    with rasterio.open(grids[0]) as src:
+        handler = TileHandler(config)
+        length = handler.get_tiles_length(src)
+        for i in range(length):
+            window, transform = TileHandler(config).get_tile(src, i)
+            data_map.setdefault(grids[0].stem, []).append(
+                src.read(1, window=window).flatten()
+            )
+            for grid in grids[1:]:
+                with rasterio.open(grid) as other_src:
+                    data_map.setdefault(grid.stem, []).append(
+                        other_src.read(1, window=window).flatten()
+                    )
 
-    corr = stats.get_correlation_matrix(folders)
+        for k, v in data_map.items():
+            data_map[k] = np.concatenate(v)
+
+    corr = pd.DataFrame.from_dict(data_map).corr(method='spearman')
     fig = px.imshow(
         corr,
         text_auto='.2f',

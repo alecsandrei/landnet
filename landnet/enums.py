@@ -11,6 +11,7 @@ class LandslideClass(Enum):
 class Mode(Enum):
     TRAIN = 'train'
     TEST = 'test'
+    INFERENCE = 'inference'
 
 
 class GeomorphometricalVariable(Enum):
@@ -23,16 +24,16 @@ class GeomorphometricalVariable(Enum):
     SLOPE = 'slope'
     NORTHNESS = 'northness'
     EASTNESS = 'eastness'
-    GENERAL_CURVATURE = 'cgene'
     PROFILE_CURVATURE = 'cprof'
     PLAN_CURVATURE = 'cplan'
+    GENERAL_CURVATURE = 'cgene'
+    FLOW_LINE_CURVATURE = 'croto'
     TANGENTIAL_CURVATURE = 'ctang'
     LONGITUDINAL_CURVATURE = 'clong'
     CROSS_SECTIONAL_CURVATURE = 'ccros'
     MINIMAL_CURVATURE = 'cmini'
     MAXIMAL_CURVATURE = 'cmaxi'
     TOTAL_CURVATURE = 'ctota'
-    FLOW_LINE_CURVATURE = 'croto'
     DIGITAL_ELEVATION_MODEL = 'dem'
     REAL_SURFACE_AREA = 'area'
     TOPOGRAPHIC_POSITION_INDEX = 'tpi'
@@ -50,3 +51,11 @@ class GeomorphometricalVariable(Enum):
     CELL_BALANCE = 'cbl'
     TOPOGRAPHIC_WETNESS_INDEX = 'twi'
     WIND_EXPOSITION_INDEX = 'wind'
+
+
+class Architecture(Enum):
+    ALEXNET = 'alexnet'
+    RESNET50 = 'resnet50'
+    CONVNEXT = 'convnext'
+    CONVNEXTKAN = 'convnextkan'
+    RESNET50KAN = 'resnet50kan'

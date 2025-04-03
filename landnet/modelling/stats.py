@@ -16,29 +16,37 @@ if t.TYPE_CHECKING:
 
 def get_correlation_matrix(folders: c.Iterable[ImageFolder]) -> pd.DataFrame:
     def handle_one_image(folder: ImageFolder, index: int):
-        return folder[index][0].numpy().flatten()
+        array, _ = folder[index]
+        grid_type = Path(folder.imgs[index][0]).stem
+        return (array.flatten(), grid_type)
 
     data_map: dict[str, np.ndarray] = {}
 
     def handle_one_folder(folder: ImageFolder):
-        name = Path(folder.root).name
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            length = len(folder.imgs)
+            length = len(folder)
             results = executor.map(
                 handle_one_image,
                 itertools.repeat(folder, length),
                 range(length),
             )
-            data_map[name] = np.concatenate(list(results))
+
+            for result in results:
+                data_map.setdefault(result[1], []).append(result[0])  # type: ignore
+            for k, v in data_map.items():
+                data_map[k] = np.concatenate(v)
+                data_map[k] = data_map[k][
+                    (data_map[k] != -99999) & (data_map[k] != 0)
+                ]
 
     for folder in folders:
         handle_one_folder(folder)
-
-    return pd.DataFrame.from_dict(data_map).corr()
+    corr = pd.DataFrame.from_dict(data_map).corr()
+    return corr
 
 
 class BinaryClassificationMetricCollection(torchmetrics.MetricCollection):
-    def __init__(self, prefix: str):
+    def __init__(self, prefix: str | None = None):
         super().__init__(
             {
                 'f1_score': torchmetrics.classification.BinaryF1Score(),
@@ -48,6 +56,9 @@ class BinaryClassificationMetricCollection(torchmetrics.MetricCollection):
                 'negative_predictive_value': torchmetrics.classification.BinaryNegativePredictiveValue(),
                 'positive_predictive_value': torchmetrics.classification.BinaryPrecision(),
                 'roc_auc': torchmetrics.classification.BinaryAUROC(),
+                'f_beta': torchmetrics.classification.BinaryFBetaScore(
+                    beta=3.0  # we care A LOT more about recall
+                ),
             },
             prefix=prefix,
         )
