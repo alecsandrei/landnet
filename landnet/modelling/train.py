@@ -22,6 +22,7 @@ from landnet.config import (
     ARCHITECTURE,
     CHECKPOINTS_DIR,
     EPOCHS,
+    GPUS,
     MODELS_DIR,
     OVERWRITE,
     TEMP_RAY_TUNE_DIR,
@@ -111,6 +112,7 @@ def train_model(
             },
             sorter=sorter,
             variables=variables,
+            trial_dir=TEMP_RAY_TUNE_DIR / TRIAL_NAME,
             run_config_kwargs={
                 'name': model_name,
             },
@@ -127,8 +129,8 @@ def train_model(
 def train_func(
     config: TuneSpace,
     variables: c.Sequence[GeomorphometricalVariable],
-    landslide_images_cacher: LandslideImagesCacher,  # type: ignore
-    model: c.Callable[[int], nn.Module],
+    landslide_images_cacher: ray.ObjectRef[LandslideImagesCacher],  # type: ignore
+    model: c.Callable[[int, Mode], nn.Module],
     **kwargs,
 ):
     train_dataset, validation_dataset, test_dataset = get_datsets_from_cacher(
@@ -141,7 +143,7 @@ def train_func(
         # test_dataset=test_dataset,
         variables=variables,
     )
-    model = model(len(variables))
+    model = model(len(variables), Mode.TRAIN)
     model = LandslideImageClassifier(model=model, config=config)
 
     trainer = prepare_trainer(get_trainer())
@@ -151,7 +153,7 @@ def train_func(
 def get_trainer():
     return pl.Trainer(
         devices='auto',
-        accelerator='gpu',
+        accelerator='gpu' if bool(GPUS) else 'cpu',
         strategy=RayDDPStrategy(),
         callbacks=[RayTrainReportCallback()],
         plugins=[RayLightningEnvironment()],
@@ -242,11 +244,11 @@ def get_datsets_from_cacher(
         ]
     )
     if len(variables) > 1:
-        train_dataset = ConcatLandslideImages(
-            train,
+        dataset = ConcatLandslideImages(
+            train
         )
         train_dataset, validation_dataset = random_split(
-            train_dataset, (0.7, 0.3)
+            dataset, (0.7, 0.3)
         )
         test_dataset = ConcatLandslideImages(test)
         return (train_dataset, validation_dataset, test_dataset)

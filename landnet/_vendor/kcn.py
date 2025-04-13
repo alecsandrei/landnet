@@ -61,6 +61,7 @@ class KANLinear(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
+        assert isinstance(self.grid, torch.Tensor)
         nn.init.kaiming_uniform_(
             self.base_weight, a=math.sqrt(5) * self.scale_base
         )
@@ -95,6 +96,7 @@ class KANLinear(nn.Module):
         assert x.dim() == 2 and x.size(1) == self.in_features
 
         grid = self.grid
+        assert isinstance(grid, torch.Tensor)
         x = x.unsqueeze(-1)
         bases = ((x >= grid[:, :-1]) & (x < grid[:, 1:])).to(x.dtype)
         for k in range(1, self.spline_order + 1):
@@ -155,6 +157,7 @@ class KANLinear(nn.Module):
     @torch.no_grad()
     def update_grid(self, x, margin=0.01):
         assert x.dim() == 2 and x.size(1) == self.in_features
+        assert isinstance(self.grid, torch.Tensor)
         batch = x.size(0)
 
         splines = self.b_splines(x)
@@ -236,8 +239,8 @@ class ConvNeXtKAN(nn.Module):
             param.requires_grad = False
 
         # Modify the classifier part of ConvNeXt
-        num_features = self.convnext.classifier[2].in_features
-        out_features = self.convnext.classifier[2].out_features
+        num_features = self.convnext.classifier[2].in_features  # type: ignore
+        out_features = self.convnext.classifier[2].out_features  # type: ignore
         self.convnext.classifier = nn.Identity()
 
         kwargs: dict[str, t.Any] = {'spline_order': 3}
@@ -264,8 +267,8 @@ class ResNetKAN(nn.Module):
             param.requires_grad = False
 
         # Modify the classifier part of ResNet
-        num_features = self.resnet.fc.in_features
-        out_features = self.resnet.fc.out_features
+        num_features = self.resnet.fc.in_features  # type: ignore
+        out_features = self.resnet.fc.out_features  # type: ignore
         self.resnet.fc = nn.Identity()
 
         kwargs: dict[str, t.Any] = {'spline_order': 3}

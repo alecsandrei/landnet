@@ -9,5 +9,10 @@ import torch
 def device() -> torch.device:
     if torch.cuda.is_available():
         return torch.device('cuda:0')
-    print('Warning: CUDA is not available.')
     return torch.get_default_device()
+
+
+def torch_clear():
+    torch.cuda.empty_cache()
+    torch.cuda.ipc_collect()
+    torch.cuda.synchronize(torch.cuda.current_device())

@@ -28,6 +28,7 @@ from torchvision.transforms import (
     Lambda,
     Normalize,
     RandomHorizontalFlip,
+    RandomVerticalFlip,
     ToTensor,
     functional,
 )
@@ -505,7 +506,7 @@ class PCAConcatLandslideImages(Dataset):
     ):
         self.landslide_images = landslide_images
         self.concat = ConcatLandslideImages(self.landslide_images)
-        self.data_indices = self.concat.data_indices
+        self.data_indices = self.concat.data_indices  # type: ignore
         self.num_components = num_components
 
     def __len__(self):
@@ -527,7 +528,6 @@ class ConcatLandslideImages(Dataset):
     ):
         self.landslide_images = landslide_images
         self.data_indices = landslide_images[0].data_indices
-        # self.i = 0
 
     def __len__(self):
         return len(self.landslide_images[0])
@@ -546,6 +546,7 @@ def get_default_augument_transform():
     return Compose(
         [
             RandomHorizontalFlip(p=0.5),
+            RandomVerticalFlip(p=0.5),
             RotateTensor([0, 90, 180, 270]),
         ]
     )
@@ -663,7 +664,7 @@ class LandslideImages(Dataset):
 
     def _get_data_indices(self) -> dict[int, list[int]]:
         start = time.perf_counter()
-        class_to_indices = {}
+        class_to_indices: dict[int, list[int]] = {}
         indices_range = range(self.grid.get_tiles_length())
         gdf = self.grid.get_landslide_percentage_intersection(
             list(indices_range), self.mode
@@ -675,7 +676,8 @@ class LandslideImages(Dataset):
                 >= self.landslide_density_threshold
                 else LandslideClass.NO_LANDSLIDE.value
             )
-            class_to_indices.setdefault(class_, []).append(row.Index)
+            assert isinstance(row.Index, t.SupportsInt)
+            class_to_indices.setdefault(class_, []).append(int(row.Index))
         end = time.perf_counter()
         logger.info(
             'Took %f seconds to compute data indices for %r at mode=%r. Length of classes: %r'

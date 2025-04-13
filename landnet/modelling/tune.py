@@ -14,8 +14,8 @@ from ray.tune.search.hyperopt import HyperOptSearch
 
 from landnet.config import (
     CHECKPOINTS_DIR,
-    CPUS,
     EPOCHS,
+    GPUS,
     NUM_SAMPLES,
     OVERLAP,
     TEMP_RAY_TUNE_DIR,
@@ -86,7 +86,8 @@ def get_scheduler(sorter: MetricSorter):
         metric=sorter.metric,
         mode=sorter.mode,
         max_t=EPOCHS,
-        grace_period=EPOCHS,
+        # grace_period=EPOCHS,
+        grace_period=3,
         reduction_factor=2,
     )
 
@@ -96,29 +97,51 @@ def get_tuner(
     func_kwds: dict,
     sorter: MetricSorter,
     variables: c.Sequence[GeomorphometricalVariable],
+    trial_dir: Path,
     run_config_kwargs: dict[str, t.Any],
 ) -> tune.Tuner:
-    return tune.Tuner(
-        TorchTrainer(
-            tune.with_parameters(train_func, **func_kwds),
-            scaling_config=train.ScalingConfig({'CPU': CPUS}, use_gpu=True),
-            run_config=train.RunConfig(
-                **run_config_kwargs,
-                checkpoint_config=CheckpointConfig(
-                    num_to_keep=1,
-                    checkpoint_score_attribute=sorter.metric,
-                    checkpoint_score_order=sorter.mode,
-                ),
-                callbacks=[SaveTrial(sorter, variables)],
-                storage_path=TEMP_RAY_TUNE_DIR.as_posix(),
+    def get_run_config():
+        return train.RunConfig(
+            **run_config_kwargs,
+            checkpoint_config=CheckpointConfig(
+                num_to_keep=1,
+                checkpoint_score_attribute=sorter.metric,
+                checkpoint_score_order=sorter.mode,
             ),
-        ),
-        param_space={
-            'train_loop_config': get_tune_space(),
-        },
-        tune_config=tune.TuneConfig(
+            callbacks=[SaveTrial(sorter, variables)],  # type: ignore
+            storage_path=TEMP_RAY_TUNE_DIR.as_posix(),
+        )
+
+    def get_tune_config():
+        return tune.TuneConfig(
             scheduler=get_scheduler(sorter),
             num_samples=NUM_SAMPLES,
             search_alg=HyperOptSearch(metric='val_loss', mode='min'),
-        ),
+        )
+
+    def get_trainable():
+        return TorchTrainer(
+            tune.with_parameters(train_func, **func_kwds),
+            scaling_config=train.ScalingConfig(use_gpu=bool(GPUS)),
+            run_config=get_run_config(),
+        )
+
+    def get_param_space():
+        return {
+            'train_loop_config': get_tune_space(),
+        }
+
+    if tune.Tuner.can_restore(trial_dir):
+        return tune.Tuner.restore(
+            trial_dir.as_posix(),
+            trainable=get_trainable(),  # type: ignore
+            param_space=get_param_space(),
+            resume_errored=True,
+            resume_unfinished=True,
+            restart_errored=True,
+        )
+    return tune.Tuner(
+        get_trainable(),  # type: ignore
+        param_space=get_param_space(),
+        tune_config=get_tune_config(),
     )

@@ -29,7 +29,7 @@ LOGGING_CONFIG = LOGGING_DIR / 'config.json'
 
 # GIS configs
 EPSG = 3844
-SAGA_CMD = None  # could be configures to specify path to saga_cmd
+SAGA_CMD: str | None = None  # could be configures to specify path to saga_cmd
 RASTER_CELL_SIZE = (5, 5)  # meters
 NODATA = float(os.getenv('NODATA', -32767.0))
 DEFAULT_TILE_SIZE = 100
@@ -39,7 +39,7 @@ TRIAL_NAME = os.getenv('TRIAL_NAME', uuid.uuid4().hex)
 LANDSLIDE_DENSITY_THRESHOLD = float(
     os.getenv('LANDSLIDE_DENSITY_THRESHOLD', 0.05)
 )
-ARCHITECTURE = Architecture(os.getenv('ARCHITECTURE', 'alexnet'))
+ARCHITECTURE = Architecture(os.getenv('ARCHITECTURE', 'resnet50'))
 PRETRAINED = int(os.getenv('PRETRAINED', 1))
 EPOCHS = int(os.getenv('EPOCHS', 10))
 GPUS = int(os.getenv('GPUS', 1))

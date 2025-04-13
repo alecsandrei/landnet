@@ -77,6 +77,7 @@ class LandslideImageClassifier(pl.LightningModule):
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         x, y = batch
         x = torch.sigmoid(self.forward(x))
+
         return (x, y)
 
     def forward(self, x):

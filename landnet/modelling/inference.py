@@ -14,7 +14,6 @@ import numpy as np
 import pandas as pd
 import torch
 import torchvision.transforms.functional as F
-from ray import train
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import CenterCrop, Compose, Lambda, Normalize
 
@@ -38,6 +37,7 @@ from landnet.modelling.models import get_architecture
 from landnet.modelling.stats import BinaryClassificationMetricCollection
 from landnet.plots import get_confusion_matrix, get_roc_curve
 from landnet.utils import save_fig
+from landnet.modelling import torch_clear
 
 if t.TYPE_CHECKING:
     from landnet._typing import TuneSpace
@@ -154,17 +154,18 @@ class InferTrainTest:
         )
 
     def handle_checkpoint(
-        self, checkpoint: train.Checkpoint, tune_space: TuneSpace
+        self, checkpoint: Path, tune_space: TuneSpace
     ) -> None:
-        torch.cuda.empty_cache()
-        torch.cuda.ipc_collect()
-        torch.cuda.synchronize(torch.cuda.current_device())
+        torch_clear()
         classifier = LandslideImageClassifier.load_from_checkpoint(
-            Path(checkpoint.path) / 'checkpoint.ckpt',
-            model=get_architecture(ARCHITECTURE)(len(self.variables)),
+            checkpoint,
+            model=get_architecture(ARCHITECTURE)(
+                len(self.variables), Mode.INFERENCE
+            ),
             config=tune_space,
+            strict=False,
         )
-        for mode in Mode:
+        for mode in (Mode.TRAIN, Mode.TEST):
             self._handle_mode(classifier, mode, tune_space)
 
 
@@ -186,53 +187,6 @@ class InferenceFolder:
         }
 
 
-# def perform_inference_on_tiles(
-#     classifier: LandslideImageClassifier, folder: InferenceFolder
-# ) -> np.ndarray:
-#     tensor_gen = get_tensor_from_dem_tiles(folder)
-#     logits = []
-#     classifier.eval()
-#     with torch.no_grad():
-#         for batch in tensor_gen:
-#             logit = torch.sigmoid(classifier(batch.to(classifier.device)))
-#             print(logit)
-#             logits.extend(logit.cpu().numpy())
-#     return np.array(logits)
-
-
-# def get_tensor_from_dem_tiles(
-#     folder: InferenceFolder, batch_size: int = 128
-# ) -> c.Generator[torch.Tensor]:
-#     def get_tensor(grid: Grid, geometry: BaseGeometry) -> torch.Tensor:
-#         array = grid.mask(
-#             geometry,
-#             mask_kwargs={'crop': True, 'filled': False},
-#         )
-#         return transform(torch.from_numpy(array))
-
-#     transform = get_inference_transform()
-#     batch: list[torch.Tensor] = []  # Store tensors for batching
-
-#     for tile in folder.tiles.itertuples():
-#         tensor = torch.cat(
-#             [
-#                 get_tensor(grid, tile.geometry)  # type: ignore
-#                 for grid in folder.enum_to_grid.values()
-#             ]
-#         ).unsqueeze(0)  # Shape: [1, C, H, W]
-
-#         batch.append(tensor)
-
-#         # If batch is full, yield a stacked tensor
-#         if len(batch) == batch_size:
-#             yield torch.cat(batch, dim=0)  # Shape: [batch_size, C, H, W]
-#             batch.clear()
-
-
-#     # Yield any remaining tensors
-#     if batch:
-#         yield torch.cat(batch, dim=0)
-# Step 1: Convert to PyTorch Dataset
 class DEMTilesDataset(Dataset):
     def __init__(self, folder: InferenceFolder, transform):
         self.folder = folder
@@ -251,7 +205,6 @@ class DEMTilesDataset(Dataset):
     def __getitem__(self, index):
         tile = self.tiles[index]
 
-        # Parallelize tensor extraction
         with concurrent.futures.ThreadPoolExecutor() as executor:
             tensors = list(
                 executor.map(
@@ -260,14 +213,12 @@ class DEMTilesDataset(Dataset):
                 )
             )
 
-        # Stack channels and return final tensor
-        return torch.cat(tensors)  # Shape: [1, C, H, W]
+        return torch.cat(tensors)
 
     def __len__(self):
         return len(self.tiles)
 
 
-# Step 2: Modify the inference function to use DataLoader
 def perform_inference_on_tiles(
     classifier: LandslideImageClassifier,
     folder: InferenceFolder,
@@ -277,24 +228,17 @@ def perform_inference_on_tiles(
     transform = get_inference_transform()
     dataset = DEMTilesDataset(folder, transform)
 
-    # Use DataLoader with multi-threading (num_workers)
     dataloader = DataLoader(
         dataset, batch_size=batch_size, num_workers=num_workers, pin_memory=True
     )
 
-    logits = []
+    logits: list[np.ndarray] = []
     classifier.eval()
     with torch.no_grad():
         for batch in dataloader:
-            batch = batch.to(
-                classifier.device, non_blocking=True
-            )  # Speed up GPU transfer
+            batch = batch.to(classifier.device, non_blocking=True)
             logit = torch.sigmoid(classifier(batch))
-            logits.extend(
-                logit.cpu().numpy()
-            )  # Convert logits to NumPy for final output
-            print(logits)
-
+            logits.extend(logit.cpu().numpy())
     return np.array(logits)
 
 
@@ -328,6 +272,5 @@ def get_inference_transform() -> Compose:
             ResizeTensor((224, 224)),
             Lambda(lambda x: (x - x.min()) / (x.max() - x.min())),
             Normalize(mean=0.5, std=0.5),
-            # get_default_transform(),
         ]
     )
