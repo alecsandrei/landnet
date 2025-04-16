@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from landnet.enums import GeomorphometricalVariable
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -31,6 +32,13 @@ def to_image_folder(path: Path):
 
 
 if __name__ == '__main__':
+    variables_subset =  [
+        GeomorphometricalVariable.SLOPE,
+        GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
+        GeomorphometricalVariable.DOWNSLOPE_CURVATURE,
+        GeomorphometricalVariable.LOCAL_UPSLOPE_CURVATURE,
+        GeomorphometricalVariable.GENERAL_CURVATURE
+    ]
     config = TileConfig(TileSize(100, 100))
     grids = list((GRIDS / Mode.TRAIN.value).glob('*.tif'))
     data_map: dict[str, np.ndarray] = {}

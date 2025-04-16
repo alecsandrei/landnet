@@ -12,15 +12,15 @@ from landnet.modelling.tune import MetricSorter
 if __name__ == '__main__':
     infer = InferTrainTest(
         variables=[
-            GeomorphometricalVariable.DOWNSLOPE_CURVATURE,
-            GeomorphometricalVariable.GENERAL_CURVATURE,
-            GeomorphometricalVariable.LOCAL_UPSLOPE_CURVATURE,
-            GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
+            # GeomorphometricalVariable.DOWNSLOPE_CURVATURE,
+            # GeomorphometricalVariable.GENERAL_CURVATURE,
+            # GeomorphometricalVariable.LOCAL_UPSLOPE_CURVATURE,
+            # GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
             GeomorphometricalVariable.SLOPE,
         ],
         sorter=MetricSorter('val_f_beta', 'max'),
     )
-    for trial in (MODELS_DIR / TRIAL_NAME / '2025-04-02_09-54-28').iterdir():
+    for trial in (MODELS_DIR / TRIAL_NAME / '2025-04-12_16-13-19').iterdir():
         if not trial.is_dir() or (trial / 'predictions').exists():
             continue
         try:

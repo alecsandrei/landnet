@@ -2,8 +2,16 @@ from __future__ import annotations
 
 import pandas as pd
 
+from landnet.enums import GeomorphometricalVariable
 from landnet.config import MODELS_DIR, TRIAL_NAME
 
+
+def enum_to_displayable(var: GeomorphometricalVariable):
+    split = var.name.split('_')
+    split[0] = split[0].title()
+    for i in range(1, len(split[1:])+1):
+        split[i] = split[i].lower()
+    return ' '.join(split)
 
 def compute_f_beta_legacy(series: pd.Series, beta=2):
     try:
@@ -35,20 +43,24 @@ def compute_f_beta(sensitivity, f1_score, beta):
 #     beta_sq = beta**2
 #     return (1 + beta_sq) * (sensitivity * ppv) / (beta_sq * sensitivity + ppv)
 
+METRICS = ['f1_score', 'sensitivity', 'specificity', 'accuracy', 'roc_auc']
 
 if __name__ == '__main__':
     parent = MODELS_DIR / TRIAL_NAME
     metric = 'val_sensitivity'
     vals = []
+    frames = []
     for csv in parent.glob('*.csv'):
-        print(csv)
+        # print(csv)
+        if csv.stem == 'results_summary':
+            continue
         df = pd.read_csv(csv)
-        df['f_beta'] = df.apply(compute_f_beta_legacy, axis='columns')
+        # df['f_beta'] = df.apply(compute_f_beta_legacy, axis='columns')
         try:
             best = df.sort_values('f1_score', ascending=False).iloc[0]
         except:
             best = df.sort_values('val_f1_score', ascending=False).iloc[0]
-        max_f_beta = best.f_beta
+        # max_f_beta = best.f_beta
         try:
             max_f1_score = best.f1_score
         except:
@@ -63,13 +75,19 @@ if __name__ == '__main__':
             max_specificity = best.val_specificity
         vals.append(
             (
-                csv.stem.split('_')[0],
-                max_f_beta,
+                enum_to_displayable(GeomorphometricalVariable(csv.stem.split('_')[0])),
+                # max_f_beta,
                 max_f1_score,
                 max_sensitivity,
-                # max_specificity,
+                max_specificity,
             )
         )
-    vals.sort(key=lambda x: x[3])
+
+        # max_f1_score = best.f1_score
+    vals.sort(key=lambda x: x[2])
     for val in vals:
         print(val)
+    df=pd.DataFrame(vals, columns=['variable', 'f1_score', 'sensitivity', 'specificity'])
+    df.sort_values(by='sensitivity', ascending=False, inplace=True)
+
+    df.to_csv(parent / 'results_summary.csv')

@@ -3,7 +3,6 @@ from __future__ import annotations
 import numpy as np
 
 from landnet.config import ARCHITECTURE, GRIDS, MODELS_DIR, PROCESSED_DATA_DIR
-from landnet.dataset import get_dem_tiles
 from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.tiles import TileConfig, TileSize
 from landnet.modelling.inference import (
