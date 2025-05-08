@@ -6,7 +6,8 @@ import geopandas as gpd
 import pytest
 
 from landnet.enums import Mode
-from landnet.features.tiles import Grid, TileConfig, TileSize
+from landnet.features.grids import Grid
+from landnet.features.tiles import TileConfig, TileSize
 
 DATA_DIR = Path(__file__).parent.parent / 'data'
 LANDSLIDES = gpd.read_file(DATA_DIR / 'test_landslides.fgb')
