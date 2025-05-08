@@ -19,6 +19,9 @@ dependencies = [
   'scikit-learn',
 ]
 
+[project.optional-dependencies]
+dev = ['pytest', 'pytest-dependency']
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["landnet"]
