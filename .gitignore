@@ -183,3 +183,18 @@ cython_debug/
 
 # logs
 *.log*
+
+# models
+models/*
+
+# DEM
+data/*
+
+# Logs
+lightning_logs/
+
+# Figures
+reports/figures/*
+
+# External data
+data/external
