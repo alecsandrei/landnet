@@ -1,7 +1,3 @@
-# Data
-*.tif
-*.tif*
-
 # Models
 models/*.csv
 
