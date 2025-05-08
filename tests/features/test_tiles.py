@@ -15,7 +15,7 @@ GRID = DATA_DIR / 'test_grid.tif'
 
 
 def test_get_masked_tile():
-    expected_shape = (1, 100, 100)
+    expected_shape = (1, 25, 25)
     config = TileConfig(
         TileSize(expected_shape[1], expected_shape[2]), overlap=0
     )
@@ -33,7 +33,7 @@ def test_get_masked_tile():
 
 @pytest.mark.dependency()
 def test_get_tile():
-    expected_shape = (1, 100, 100)
+    expected_shape = (1, 25, 25)
     config = TileConfig(
         TileSize(expected_shape[1], expected_shape[2]), overlap=0
     )
@@ -44,7 +44,7 @@ def test_get_tile():
 
 @pytest.mark.dependency(depends=['test_get_tile'])
 def test_get_tiles():
-    expected_shape = (1, 100, 100)
+    expected_shape = (1, 25, 25)
     config = TileConfig(
         TileSize(expected_shape[1], expected_shape[2]), overlap=0
     )
