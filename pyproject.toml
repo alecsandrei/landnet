@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ['pytest', 'pytest-dependency']
+dev = ['pytest', 'pytest-dependency', 'mypy', 'ruff', 'pre-commit']
 
 [tool.setuptools.packages.find]
 where = ["."]
