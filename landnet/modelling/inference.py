@@ -19,7 +19,6 @@ from torchvision.transforms import CenterCrop, Compose, Lambda, Normalize
 
 from landnet.config import (
     ARCHITECTURE,
-    CHECKPOINTS_DIR,
     GRIDS,
 )
 from landnet.dataset import logits_to_dem_tiles
@@ -32,12 +31,12 @@ from landnet.features.tiles import (
     TileConfig,
 )
 from landnet.logger import create_logger
+from landnet.modelling import torch_clear
 from landnet.modelling.lightning import LandslideImageClassifier
 from landnet.modelling.models import get_architecture
 from landnet.modelling.stats import BinaryClassificationMetricCollection
 from landnet.plots import get_confusion_matrix, get_roc_curve
 from landnet.utils import save_fig
-from landnet.modelling import torch_clear
 
 if t.TYPE_CHECKING:
     from landnet._typing import TuneSpace
@@ -50,7 +49,7 @@ logger = create_logger(__name__)
 class InferTrainTest:
     variables: c.Sequence[GeomorphometricalVariable]
     sorter: MetricSorter
-    out_dir: Path = CHECKPOINTS_DIR
+    out_dir: Path
 
     @staticmethod
     def _get_landslide_images(
@@ -154,15 +153,17 @@ class InferTrainTest:
         )
 
     def handle_checkpoint(
-        self, checkpoint: Path, tune_space: TuneSpace
+        self, checkpoint_path: os.PathLike | str, tune_space: TuneSpace
     ) -> None:
         torch_clear()
+        tune_space_copy = tune_space.copy()
+        tune_space_copy['batch_size'] = 1
         classifier = LandslideImageClassifier.load_from_checkpoint(
-            checkpoint,
+            checkpoint_path,
             model=get_architecture(ARCHITECTURE)(
                 len(self.variables), Mode.INFERENCE
             ),
-            config=tune_space,
+            config=tune_space_copy,
             strict=False,
         )
         for mode in (Mode.TRAIN, Mode.TEST):

@@ -150,6 +150,7 @@ class LandslideImageDataModule(pl.LightningDataModule):
             persistent_workers=True,  # Keeps workers alive
             class_balance=DEFAULT_CLASS_BALANCE,
             pin_memory=True,
+            # size=5000,
         )
 
     def val_dataloader(self):

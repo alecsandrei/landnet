@@ -78,7 +78,7 @@ def geojson_to_gdf(geojson: GeoJSON) -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame.from_features(geojson['features'], crs=crs)
 
 
-# @cache
+@cache
 def get_landslide_shapes(mode: Mode) -> gpd.GeoSeries:
     return gpd.read_file(
         RAW_DATA_DIR / 'shapes.gpkg',

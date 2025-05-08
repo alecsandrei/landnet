@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import typing as t
 import uuid
 from pathlib import Path
 
@@ -30,9 +32,7 @@ LOGGING_CONFIG = LOGGING_DIR / 'config.json'
 # GIS configs
 EPSG = 3844
 SAGA_CMD: str | None = None  # could be configures to specify path to saga_cmd
-RASTER_CELL_SIZE = (5, 5)  # meters
 NODATA = float(os.getenv('NODATA', -32767.0))
-DEFAULT_TILE_SIZE = 100
 
 # Model configs
 TRIAL_NAME = os.getenv('TRIAL_NAME', uuid.uuid4().hex)
@@ -54,4 +54,21 @@ OVERWRITE = bool(
 OVERLAP = int(os.getenv('OVERLAP', 0))
 
 TEMP_RAY_TUNE_DIR = MODELS_DIR / 'temp_ray_tune'
-CHECKPOINTS_DIR = TEMP_RAY_TUNE_DIR / TRIAL_NAME
+
+
+def save_vars_as_json(out_file: Path):
+    def is_json_serializable(obj: t.Any) -> bool:
+        try:
+            json.dumps(obj)
+            return True
+        except (TypeError, OverflowError):
+            return False
+
+    vars = {
+        k: v if is_json_serializable(v) else str(v)
+        for k, v in globals().items()
+        if k.isupper()
+    }
+    with out_file.open(mode='w') as f:
+        json.dump(vars, f, indent=2)
+    return vars

@@ -11,6 +11,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import rasterio.crs
 import rasterio.mask
 import rasterio.merge
@@ -20,6 +21,8 @@ from PIL import Image
 from rasterio import DatasetReader, windows
 from rasterio.enums import Resampling
 from rasterio.features import dataset_features
+from rasterio.io import MemoryFile
+from rasterio.mask import raster_geometry_mask
 from shapely import Polygon, box
 from shapely.geometry.base import BaseGeometry
 from torch.utils.data import DataLoader, Dataset, Subset, WeightedRandomSampler
@@ -35,7 +38,6 @@ from torchvision.transforms import (
 
 from landnet._typing import ImageFolders, Metadata
 from landnet.config import (
-    DEFAULT_TILE_SIZE,
     EPSG,
     GRIDS,
     LANDSLIDE_DENSITY_THRESHOLD,
@@ -169,7 +171,7 @@ def get_raster_features(
     window: windows.Window | None = None,
     metadata: Metadata | None = None,
 ) -> list[dict[str, t.Any]]:
-    metadata = metadata or {}
+    metadata = metadata if metadata else {}
     with rasterio.open(path, window=window, **metadata) as raster:
         return list(
             dataset_features(
@@ -187,8 +189,12 @@ class Grid:
     path: Path
     tile_config: TileConfig
     tile_handler: TileHandler = field(init=False)
+    landslides: gpd.GeoSeries | None = None
     cached_tile: dict[int, tuple[Metadata, np.ndarray, Polygon]] = field(
         init=False, default_factory=dict
+    )
+    cached_masked_tiles: dict[int, tuple[Metadata, np.ndarray, Polygon]] = (
+        field(init=False, default_factory=dict)
     )
 
     def __post_init__(self):
@@ -200,17 +206,32 @@ class Grid:
         with rasterio.open(self.path) as src:
             return self.tile_handler.get_tiles_length(src)
 
+    def get_bounds(self, indices: c.Sequence[int]) -> gpd.GeoSeries:
+        bounds = gpd.GeoSeries()
+        bounds.set_crs(inplace=True, epsg=EPSG)
+        for i in indices:
+            bounds[i] = self.get_tile_bounds(i)[2]
+        return bounds
+
+    def get_tile_landslides(self, index: int, mode: Mode) -> gpd.GeoSeries:
+        _, _, bounds = self.get_tile_bounds(index)
+        landslides = (
+            get_landslide_shapes(mode)
+            if self.landslides is None
+            else self.landslides
+        )
+        intersection = landslides.intersection(bounds)
+        return intersection[~intersection.is_empty]
+
     def get_landslide_percentage_intersection(
         self, indices: c.Sequence[int], mode: Mode
     ) -> gpd.GeoDataFrame:
         assert self.tile_handler is not None
-        bounds = gpd.GeoSeries()
-        bounds.set_crs(inplace=True, epsg=EPSG)
-        with rasterio.open(self.path) as src:
-            for i in indices:
-                window, _ = self.tile_handler.get_tile(src, i)
-                bounds[i] = box(*windows.bounds(window, src.transform))
-        landslides = get_landslide_shapes(mode)
+        bounds = self.get_bounds(indices)
+        landslides = pd.concat(
+            [self.get_tile_landslides(i, mode) for i in indices],
+            ignore_index=True,
+        )
         bounds = t.cast(gpd.GeoDataFrame, bounds.to_frame('geometry'))
         bounds['landslide_density'] = bounds['geometry'].apply(
             lambda geom: get_percentage_intersection(geom, other=landslides)  # type: ignore
@@ -237,8 +258,6 @@ class Grid:
     def get_tile(self, index: int) -> tuple[Metadata, np.ndarray, Polygon]:
         if (vals := self.cached_tile.get(index, None)) is None:
             with rasterio.open(self.path) as src:
-                metadata = src.meta.copy()
-
                 metadata, window, bounds = self.get_tile_bounds(index)
                 self.cached_tile[index] = (
                     metadata,
@@ -264,6 +283,33 @@ class Grid:
                     metadata,
                     src.read(window=window),
                 )
+
+    def get_masked_tile(
+        self, index: int, mode: Mode
+    ) -> tuple[Metadata, np.ndarray, Polygon]:
+        if (vals := self.cached_masked_tiles.get(index, None)) is None:
+            rasterio.open
+            with rasterio.open(self.path) as src:
+                metadata, window, bounds = self.get_tile_bounds(index)
+                landslides = self.get_tile_landslides(index, mode)
+                array = src.read(window=window)
+                if not landslides.empty:
+                    memfile = MemoryFile()
+                    dataset = memfile.open(**metadata)
+                    dataset.write(array)
+                    mask, _, _ = raster_geometry_mask(
+                        dataset, landslides, all_touched=True, invert=True
+                    )
+                    mask = np.expand_dims(mask.astype('int8'), 0)
+                else:
+                    mask = np.zeros(array.shape)
+                self.cached_masked_tiles[index] = (
+                    metadata,
+                    mask,
+                    bounds,
+                )
+                return self.cached_masked_tiles[index]
+        return vals
 
     def mask(
         self,
@@ -434,9 +480,12 @@ class RasterTiles:
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             results = executor.map(from_path, self.tiles['path'])
-            for result in results:
-                if isinstance(result, Exception):
-                    raise result
+            # TODO: use submit instead and handle each error separately
+            try:
+                for _ in results:
+                    ...
+            except Exception as e:
+                logger.error('Error %s occured.' % e)
 
         return self.from_dir(out_dir, mode)
 
@@ -492,14 +541,6 @@ def get_default_loader(path: str) -> Image.Image:
         return img
 
 
-def get_landslide_density_threshold(tile_size: TileSize) -> float:
-    """The LANDSLIDE_DENSITY_THRESHOLD is relative to the DEFAULT_TILE_SIZE."""
-    default_area = DEFAULT_TILE_SIZE * DEFAULT_TILE_SIZE
-    return LANDSLIDE_DENSITY_THRESHOLD * (
-        (tile_size.width * tile_size.height) / default_area
-    )
-
-
 class PCAConcatLandslideImages(Dataset):
     def __init__(
         self, landslide_images: c.Sequence[LandslideImages], num_components: int
@@ -533,8 +574,6 @@ class ConcatLandslideImages(Dataset):
         return len(self.landslide_images[0])
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
-        # print(self.i)
-        # self.i += 1
         image_batch = [images[index] for images in self.landslide_images]
         cat = torch.cat([batch[0] for batch in image_batch], dim=0)
         class_ = image_batch[0][1]
@@ -553,8 +592,8 @@ def get_default_augument_transform():
 
 
 DEFAULT_CLASS_BALANCE = {
-    LandslideClass.NO_LANDSLIDE: 0.5,
-    LandslideClass.LANDSLIDE: 0.5,
+    LandslideClass.NO_LANDSLIDE: 0.3,
+    LandslideClass.LANDSLIDE: 0.7,
 }
 
 
@@ -652,7 +691,9 @@ class LandslideImages(Dataset):
         self.overlap = 0
         self.grid = grid
         self.landslide_density_threshold = landslide_density_threshold
-        self.transform = transform or get_default_transform()
+        self.transform = (
+            transform if transform is not None else get_default_transform()
+        )
         self.augument_transform = get_default_augument_transform()
         self.transforms = transforms
         self.mode = (

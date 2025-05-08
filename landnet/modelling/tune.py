@@ -5,15 +5,14 @@ import typing as t
 from pathlib import Path
 
 from ray import train, tune
-from ray.train import CheckpointConfig
+from ray.train import Checkpoint, CheckpointConfig
 from ray.train.torch import TorchTrainer
-from ray.tune import ExperimentAnalysis
+from ray.tune import ExperimentAnalysis, Result
 from ray.tune.experiment import Trial
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.search.hyperopt import HyperOptSearch
 
 from landnet.config import (
-    CHECKPOINTS_DIR,
     EPOCHS,
     GPUS,
     NUM_SAMPLES,
@@ -53,8 +52,9 @@ class SaveTrial(tune.Callback):
         super().__init__(**kwargs)
 
     def _get_best_result(self, trials: t.List[Trial]):
+        # trials[0].local_experiment_path
         analysis = ExperimentAnalysis(
-            CHECKPOINTS_DIR,
+            trials[0].local_experiment_path,
             trials=trials,
             default_metric=self.sorter.metric,
             default_mode=self.sorter.mode,
@@ -62,23 +62,35 @@ class SaveTrial(tune.Callback):
         results = tune.ResultGrid(analysis)
         return results.get_best_result(scope='all')
 
+    def get_best_checkpoint(self, result: Result) -> Path:
+        ckpt = t.cast(
+            Checkpoint | None,
+            result.get_best_checkpoint(self.sorter.metric, self.sorter.mode),
+        )
+        assert ckpt is not None
+        return Path(ckpt.path) / 'checkpoint.ckpt'
+
     def on_trial_complete(
         self, iteration: int, trials: t.List[Trial], trial: Trial, **info
     ):
         result = self._get_best_result([trial])
-        ckpt = result.get_best_checkpoint(self.sorter.metric, self.sorter.mode)
-        assert result.config is not None and ckpt is not None
+        assert result.config is not None
         logger.info('Trainable name: %s' % trial.path)
         infer = InferTrainTest(self.variables, self.sorter, Path(trial.path))  # type: ignore
-        infer.handle_checkpoint(ckpt, result.config['train_loop_config'])
+        infer.handle_checkpoint(
+            self.get_best_checkpoint(result), result.config['train_loop_config']
+        )
 
-    def _on_experiment_end(self, trials: list[Trial], **info):
+    def on_experiment_end(self, trials: list[Trial], **info):
+        # if len(trials) == 1:
+        #     return None
         result = self._get_best_result(trials)
 
-        ckpt = result.get_best_checkpoint(self.sorter.metric, self.sorter.mode)
-        assert result.config is not None and ckpt is not None
-        infer = InferTrainTest(self.variables, self.sorter)
-        infer.handle_checkpoint(ckpt, result.config['train_loop_config'])
+        assert result.config is not None
+        infer = InferTrainTest(self.variables, self.sorter, Path(result.path))
+        infer.handle_checkpoint(
+            self.get_best_checkpoint(result), result.config['train_loop_config']
+        )
 
 
 def get_scheduler(sorter: MetricSorter):
@@ -86,8 +98,8 @@ def get_scheduler(sorter: MetricSorter):
         metric=sorter.metric,
         mode=sorter.mode,
         max_t=EPOCHS,
-        # grace_period=EPOCHS,
-        grace_period=3,
+        grace_period=EPOCHS,
+        # grace_period=EPOCHS if EPOCHS < 3 else 3,
         reduction_factor=2,
     )
 

@@ -3,24 +3,23 @@ from __future__ import annotations
 import collections.abc as c
 import pickle
 import typing as t
+from abc import ABC, abstractmethod
 
 import torch
 import torchvision.models
 from sklearn.decomposition import PCA
 from torch import nn
 from torch.utils.data import Dataset
+from torchvision.models import AlexNet, ConvNeXt, ResNet, WeightsEnum
 
 from landnet._vendor.kcn import ConvNeXtKAN, ResNetKAN
 from landnet.config import PRETRAINED
-from abc import ABC, abstractmethod
 from landnet.enums import Architecture, Mode
 from landnet.logger import create_logger
-from torchvision.models import WeightsEnum
 
 if t.TYPE_CHECKING:
     from pathlib import Path
 
-    from torchvision.models import AlexNet, ConvNeXt, ResNet
     from landnet.features.tiles import LandslideImages
 
 logger = create_logger(__name__)
@@ -159,8 +158,31 @@ class ConvNextBuilder(ModelBuilder):
             else None,
         )
 
-    def _adapt_output_features(self, model: ConvNeXt) -> ConvNeXt:
-        model.classifier[2] = nn.Linear(1024, self.out_features, bias=True)
+    # def _adapt_input_channels(
+    #     self, model: M, in_channels: int
+    # ) -> nn.Sequential | M:
+    #     model.features[0][0] = nn.Conv2d(
+    #         in_channels,
+    #         128,
+    #         4,
+    #         4,
+    #         0,
+    #         dilation=1,
+    #         groups=1,
+    #         bias=True,
+    #     )
+    #     return model
+    # return super()._adapt_input_channels(model, in_channels)
+
+    def _adapt_output_features(self, model: M) -> M:
+        layer = nn.Linear(1024, self.out_features, bias=True)
+        if isinstance(model, nn.Sequential):
+            assert isinstance(model[1], ConvNeXt)
+            convnext = model[1]
+            assert isinstance(convnext, ConvNeXt)
+            convnext.classifier[2] = layer
+        if isinstance(model, ConvNeXt):
+            model.classifier[2] = layer
         return model
 
 

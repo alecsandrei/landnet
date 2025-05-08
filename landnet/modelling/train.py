@@ -4,7 +4,6 @@ import collections.abc as c
 import os
 import shutil
 import typing as t
-from pathlib import Path
 
 import lightning.pytorch as pl
 import ray
@@ -20,7 +19,6 @@ from torch.utils.data import random_split
 
 from landnet.config import (
     ARCHITECTURE,
-    CHECKPOINTS_DIR,
     EPOCHS,
     GPUS,
     MODELS_DIR,
@@ -56,8 +54,10 @@ def save_experiment(
     results: ResultGrid,
     sorter: MetricSorter,
     variables: c.Sequence[GeomorphometricalVariable],
+    model_name: str,
 ) -> None:
-    experiment_out_dir = MODELS_DIR / TRIAL_NAME / get_utc_now()
+    experiment_out_dir = MODELS_DIR / TRIAL_NAME / model_name / get_utc_now()
+    experiment_dir = TEMP_RAY_TUNE_DIR / model_name
     os.makedirs(experiment_out_dir, exist_ok=True)
     results.get_dataframe().T.to_csv(experiment_out_dir / 'trials.csv')
     best_result = results.get_best_result(
@@ -72,8 +72,8 @@ def save_experiment(
         metric=sorter.metric, mode=sorter.mode
     )
     assert best_checkpoint is not None
-    shutil.move(Path(best_result.path) / 'predictions', experiment_out_dir)
-    for content in CHECKPOINTS_DIR.iterdir():
+    # shutil.move(Path(best_result.path) / 'predictions', experiment_out_dir)
+    for content in experiment_dir.iterdir():
         shutil.move(content, experiment_out_dir)
     with (experiment_out_dir / 'geomorphometrical_variables').open(
         mode='w'
@@ -90,19 +90,14 @@ def train_model(
 ):
     assert TRIAL_NAME is not None
     TEMP_RAY_TUNE_DIR.mkdir(exist_ok=True)
-    out_name = MODELS_DIR / TRIAL_NAME / f'{model_name}_{ARCHITECTURE.value}'
-    os.makedirs(out_name.parent, exist_ok=True)
+    experiment_dir = MODELS_DIR / TRIAL_NAME / model_name
+    if experiment_dir.exists() and not OVERWRITE:
+        logger.info(
+            'Skipping training for %s as %s already exists.'
+            % (variables, experiment_dir)
+        )
+        return None
     try:
-        if (
-            not OVERWRITE
-            and (
-                out_name.with_suffix('.ckpt').exists()
-                or out_name.with_suffix('.pt').exists()
-            )
-            and out_name.with_suffix('.csv').exists()
-        ):
-            return None
-
         tuner = get_tuner(
             train_func,
             func_kwds={
@@ -112,18 +107,13 @@ def train_model(
             },
             sorter=sorter,
             variables=variables,
-            trial_dir=TEMP_RAY_TUNE_DIR / TRIAL_NAME,
-            run_config_kwargs={
-                'name': model_name,
-            },
+            trial_dir=TEMP_RAY_TUNE_DIR / model_name,
+            run_config_kwargs={'name': model_name},
         )
         results = tuner.fit()
-        save_experiment(results, sorter, variables)
+        save_experiment(results, sorter, variables, model_name)
     except Exception as e:
-        logger.info(
-            'Error %s occured. Will cleanup %s' % (e, TEMP_RAY_TUNE_DIR)
-        )
-        shutil.rmtree(TEMP_RAY_TUNE_DIR, ignore_errors=True)
+        logger.info('Error %s occured for variables %s' % (e, variables))
 
 
 def train_func(
@@ -244,12 +234,8 @@ def get_datsets_from_cacher(
         ]
     )
     if len(variables) > 1:
-        dataset = ConcatLandslideImages(
-            train
-        )
-        train_dataset, validation_dataset = random_split(
-            dataset, (0.7, 0.3)
-        )
+        dataset = ConcatLandslideImages(train)
+        train_dataset, validation_dataset = random_split(dataset, (0.7, 0.3))
         test_dataset = ConcatLandslideImages(test)
         return (train_dataset, validation_dataset, test_dataset)
     else:
