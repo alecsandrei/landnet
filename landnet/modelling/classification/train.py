@@ -27,19 +27,21 @@ from landnet.config import (
     TRIAL_NAME,
 )
 from landnet.enums import GeomorphometricalVariable, Mode
+from landnet.features.grids import get_grid_for_variable
 from landnet.features.tiles import (
-    ConcatLandslideImages,
-    LandslideImages,
     TileConfig,
     TileSize,
-    get_landslide_images_for_variable,
 )
 from landnet.logger import create_logger
-from landnet.modelling.lightning import (
+from landnet.modelling.classification.dataset import (
+    ConcatLandslideImageClassification,
+    LandslideImageClassification,
+)
+from landnet.modelling.classification.lightning import (
     LandslideImageClassifier,
     LandslideImageDataModule,
 )
-from landnet.modelling.models import get_architecture
+from landnet.modelling.classification.models import get_architecture
 from landnet.modelling.tune import get_tuner
 from landnet.utils import get_utc_now
 
@@ -85,7 +87,7 @@ def save_experiment(
 def train_model(
     variables: c.Sequence[GeomorphometricalVariable],
     model_name: str,
-    cacher: ray.ObjectRef[LandslideImagesCacher],  # type: ignore
+    cacher: ray.ObjectRef[LandslideImageClassificationCacher],  # type: ignore
     sorter: MetricSorter,
 ):
     assert TRIAL_NAME is not None
@@ -119,7 +121,7 @@ def train_model(
 def train_func(
     config: TuneSpace,
     variables: c.Sequence[GeomorphometricalVariable],
-    landslide_images_cacher: ray.ObjectRef[LandslideImagesCacher],  # type: ignore
+    landslide_images_cacher: ray.ObjectRef[LandslideImageClassificationCacher],  # type: ignore
     model: c.Callable[[int, Mode], nn.Module],
     **kwargs,
 ):
@@ -154,15 +156,15 @@ def get_trainer():
 
 
 type CachedImages = c.MutableMapping[
-    GeomorphometricalVariable, dict[Mode, LandslideImages]
+    GeomorphometricalVariable, dict[Mode, LandslideImageClassification]
 ]
 
 
 @ray.remote
-class LandslideImagesCacher:
-    """Actor used to cache the LandslideImages.
+class LandslideImageClassificationCacher:
+    """Actor used to cache the LandslideImageClassification.
 
-    Because of the _get_data_indices() method, LandslideImages takes some time
+    Because of the _get_data_indices() method, LandslideImageClassification takes some time
     to load."""
 
     def __init__(self):
@@ -173,7 +175,7 @@ class LandslideImagesCacher:
         tile_size: TileSize,
         mode: Mode,
         variable: GeomorphometricalVariable,
-    ) -> LandslideImages | None:
+    ) -> LandslideImageClassification | None:
         try:
             return self.map[tile_size][variable][mode]
         except KeyError:
@@ -184,22 +186,21 @@ class LandslideImagesCacher:
         variable: GeomorphometricalVariable,
         tile_config: TileConfig,
         mode: Mode,
-    ) -> LandslideImages:
+    ) -> LandslideImageClassification:
         map_ = self.map.setdefault(tile_config.size, {}).setdefault(
             variable, {}
         )
         if mode not in map_:
             logger.info('%r' % mode)
-            map_[mode] = get_landslide_images_for_variable(
-                variable, tile_config, mode
-            )
+            grid = get_grid_for_variable(variable, tile_config, mode)
+            map_[mode] = LandslideImageClassification(grid)
         return map_[mode]
 
     def set(
         self,
         tile_size: TileSize,
         variable: GeomorphometricalVariable,
-        landslide_images: LandslideImages,
+        landslide_images: LandslideImageClassification,
         mode: Mode,
     ) -> None:
         self.map.setdefault(tile_size, {}).setdefault(variable, {})[mode] = (
@@ -213,7 +214,7 @@ class LandslideImagesCacher:
 
 
 def get_datsets_from_cacher(
-    cacher: ray.ObjectRef[LandslideImagesCacher],  # type: ignore
+    cacher: ray.ObjectRef[LandslideImageClassificationCacher],  # type: ignore
     config: TuneSpace,
     variables: c.Sequence[GeomorphometricalVariable],
 ) -> TrainTestValidation:
@@ -234,9 +235,9 @@ def get_datsets_from_cacher(
         ]
     )
     if len(variables) > 1:
-        dataset = ConcatLandslideImages(train)
+        dataset = ConcatLandslideImageClassification(train)
         train_dataset, validation_dataset = random_split(dataset, (0.7, 0.3))
-        test_dataset = ConcatLandslideImages(test)
+        test_dataset = ConcatLandslideImageClassification(test)
         return (train_dataset, validation_dataset, test_dataset)
     else:
         train_dataset, validation_dataset = random_split(train[0], (0.7, 0.3))

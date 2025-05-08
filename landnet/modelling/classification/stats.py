@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torchmetrics.classification
+import torchmetrics.segmentation
 
 if t.TYPE_CHECKING:
     from torchvision.datasets import ImageFolder

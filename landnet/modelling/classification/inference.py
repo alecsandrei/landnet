@@ -21,20 +21,24 @@ from landnet.config import (
     ARCHITECTURE,
     GRIDS,
 )
-from landnet.dataset import logits_to_dem_tiles
 from landnet.enums import GeomorphometricalVariable, LandslideClass, Mode
+from landnet.features.dataset import logits_to_dem_tiles
+from landnet.features.grids import Grid
 from landnet.features.tiles import (
-    ConcatLandslideImages,
-    Grid,
-    LandslideImages,
-    ResizeTensor,
     TileConfig,
 )
 from landnet.logger import create_logger
 from landnet.modelling import torch_clear
-from landnet.modelling.lightning import LandslideImageClassifier
-from landnet.modelling.models import get_architecture
-from landnet.modelling.stats import BinaryClassificationMetricCollection
+from landnet.modelling.classification.dataset import (
+    ConcatLandslideImageClassification,
+    LandslideImageClassification,
+)
+from landnet.modelling.classification.lightning import LandslideImageClassifier
+from landnet.modelling.classification.models import get_architecture
+from landnet.modelling.classification.stats import (
+    BinaryClassificationMetricCollection,
+)
+from landnet.modelling.dataset import ResizeTensor
 from landnet.plots import get_confusion_matrix, get_roc_curve
 from landnet.utils import save_fig
 
@@ -54,11 +58,11 @@ class InferTrainTest:
     @staticmethod
     def _get_landslide_images(
         variable: GeomorphometricalVariable, tune_space: TuneSpace, mode: Mode
-    ) -> LandslideImages:
+    ) -> LandslideImageClassification:
         grid = (GRIDS / mode.value / variable.value).with_suffix('.tif')
         tile_config = tune_space['tile_config']
         tile_config.overlap = 0  # In inferance mode, this should be 0
-        return LandslideImages(Grid(grid, tile_config))
+        return LandslideImageClassification(Grid(grid, tile_config))
 
     def _get_predictions(
         self, classifier: LandslideImageClassifier, dataloader: DataLoader
@@ -132,7 +136,7 @@ class InferTrainTest:
         mode: Mode,
         tune_space: TuneSpace,
     ) -> None:
-        images = ConcatLandslideImages(
+        images = ConcatLandslideImageClassification(
             [
                 self._get_landslide_images(variable, tune_space, mode)
                 for variable in self.variables

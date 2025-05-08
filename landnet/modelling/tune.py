@@ -22,7 +22,7 @@ from landnet.config import (
 from landnet.enums import GeomorphometricalVariable
 from landnet.features.tiles import TileConfig, TileSize
 from landnet.logger import create_logger
-from landnet.modelling.inference import InferTrainTest
+from landnet.modelling.classification.inference import InferTrainTest
 
 logger = create_logger(__name__)
 

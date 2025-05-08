@@ -1,12 +1,29 @@
 from __future__ import annotations
 
 import collections.abc as c
+import concurrent.futures
 import typing as t
+from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
+import geopandas as gpd
+import numpy as np
+import pandas as pd
+import rasterio.crs
+import rasterio.mask
+import rasterio.merge
+import rasterio.warp
 from PySAGA_cmd.saga import SAGA
+from rasterio import windows
+from rasterio.io import MemoryFile
+from rasterio.mask import raster_geometry_mask
+from shapely import Polygon, box
+from shapely.geometry.base import BaseGeometry
 
+from landnet._typing import GridTypes, Metadata
 from landnet.config import (
+    EPSG,
     GRIDS,
     INFERENCE_TILES,
     INTERIM_DATA_DIR,
@@ -14,6 +31,11 @@ from landnet.config import (
     TRAIN_TILES,
 )
 from landnet.enums import GeomorphometricalVariable, Mode
+from landnet.features.dataset import (
+    get_landslide_shapes,
+    get_percentage_intersection,
+)
+from landnet.features.tiles import RasterTiles, TileConfig, TileHandler
 from landnet.logger import create_logger
 
 if t.TYPE_CHECKING:
@@ -21,7 +43,6 @@ if t.TYPE_CHECKING:
 
     from PySAGA_cmd.saga import SAGA, Library, ToolOutput
 
-    from landnet.features.tiles import RasterTiles
 
 logger = create_logger(__name__)
 
@@ -409,7 +430,7 @@ class TerrainAnalysis:
             ignore_stderr=self.ignore_stderr,
         )
 
-    def flow_accumulation_parallelizable(self) -> ToolOutput:
+    def flow_accumulation_parallelizable(self) -> ToolOutput | None:
         if not self.should_compute(GeomorphometricalVariable.FLOW_ACCUMULATION):
             return None
         tool = self.hydrology / 'Flow Accumulation (Parallelizable)'
@@ -484,49 +505,161 @@ class TerrainAnalysis:
         )
 
 
-# def handle_tile(
-#     tile_path: str,
-#     tiles: RasterTiles,
-#     tiles_with_overlap: RasterTiles,
-#     saga: SAGA,
-#     mode: Mode,
-# ) -> list[tuple[str, ToolOutput]]:
-#     tile = t.cast(
-#         str, tiles.tiles[tiles.tiles['path'] == tile_path].iloc[0].path
-#     )
-#     overlap_tile = (
-#         tiles_with_overlap.tiles[tiles_with_overlap.tiles['path'] == tile]
-#         .iloc[0]
-#         .path
-#     )
-#     overlap_tile_path = tiles_with_overlap.parent_dir / overlap_tile
-#     return list(
-#         TerrainAnalysis(
-#             tiles.parent_dir / tile,
-#             dem_edge=overlap_tile_path,
-#             mode=mode,
-#             saga=saga,
-#             verbose=False,
-#             infer_obj_type=False,
-#             ignore_stderr=False,
-#         ).execute()
-#     )
+@dataclass
+class Grid:
+    path: Path
+    tile_config: TileConfig
+    tile_handler: TileHandler = field(init=False)
+    landslides: gpd.GeoSeries | None = None
+    cached_tile: dict[int, tuple[Metadata, np.ndarray, Polygon]] = field(
+        init=False, default_factory=dict
+    )
+    cached_masked_tiles: dict[int, tuple[Metadata, np.ndarray, Polygon]] = (
+        field(init=False, default_factory=dict)
+    )
 
+    def __post_init__(self):
+        if self.tile_config:
+            self.tile_handler = TileHandler(self.tile_config)
 
-# def handle_tiles(
-#     tiles: RasterTiles, tiles_with_overlap: RasterTiles, mode: Mode
-# ):
-#     saga = SAGA('saga_cmd', version=Version(9, 8, 0))
-#     func = functools.partial(
-#         handle_tile,
-#         tiles=tiles,
-#         tiles_with_overlap=tiles_with_overlap,
-#         saga=saga,
-#         mode=mode,
-#     )
-#     with concurrent.futures.ProcessPoolExecutor(max_workers=25) as executor:
-#         results = executor.map(func, tiles.tiles['path'])
-#     return results
+    def get_tiles_length(self) -> int:
+        assert self.tile_handler is not None
+        with rasterio.open(self.path) as src:
+            return self.tile_handler.get_tiles_length(src)
+
+    def get_bounds(self, indices: c.Sequence[int]) -> gpd.GeoSeries:
+        bounds = gpd.GeoSeries()
+        bounds.set_crs(inplace=True, epsg=EPSG)
+        for i in indices:
+            bounds[i] = self.get_tile_bounds(i)[2]
+        return bounds
+
+    def get_tile_landslides(self, index: int, mode: Mode) -> gpd.GeoSeries:
+        _, _, bounds = self.get_tile_bounds(index)
+        landslides = (
+            get_landslide_shapes(mode)
+            if self.landslides is None
+            else self.landslides
+        )
+        intersection = landslides.intersection(bounds)
+        return intersection[~intersection.is_empty]
+
+    def get_landslide_percentage_intersection(
+        self, indices: c.Sequence[int], mode: Mode
+    ) -> gpd.GeoDataFrame:
+        assert self.tile_handler is not None
+        bounds = self.get_bounds(indices)
+        landslides = pd.concat(
+            [self.get_tile_landslides(i, mode) for i in indices],
+            ignore_index=True,
+        )
+        bounds = t.cast(gpd.GeoDataFrame, bounds.to_frame('geometry'))
+        bounds['landslide_density'] = bounds['geometry'].apply(
+            lambda geom: get_percentage_intersection(geom, other=landslides)  # type: ignore
+        )
+        return bounds
+
+    def get_tile_bounds(
+        self, index: int
+    ) -> tuple[Metadata, windows.Window, Polygon]:
+        assert self.tile_handler is not None
+
+        with rasterio.open(self.path) as src:
+            metadata = src.meta.copy()
+
+            window, transform = self.tile_handler.get_tile(src, index)
+            metadata['transform'] = transform
+            metadata['width'], metadata['height'] = (
+                window.width,
+                window.height,
+            )
+            bounds = box(*windows.bounds(window, src.transform))
+            return (metadata, window, bounds)
+
+    def get_tile(self, index: int) -> tuple[Metadata, np.ndarray, Polygon]:
+        if (vals := self.cached_tile.get(index, None)) is None:
+            with rasterio.open(self.path) as src:
+                metadata, window, bounds = self.get_tile_bounds(index)
+                self.cached_tile[index] = (
+                    metadata,
+                    src.read(window=window),
+                    bounds,
+                )
+                return self.cached_tile[index]
+        return vals
+
+    def get_tiles(self) -> c.Generator[tuple[Metadata, np.ndarray]]:
+        assert self.tile_handler is not None
+
+        with rasterio.open(self.path) as src:
+            metadata = src.meta.copy()
+            for i in range(self.get_tiles_length()):
+                window, transform = self.tile_handler.get_tile(src, i)
+                metadata['transform'] = transform
+                metadata['width'], metadata['height'] = (
+                    window.width,
+                    window.height,
+                )
+                yield (
+                    metadata,
+                    src.read(window=window),
+                )
+
+    def get_masked_tile(
+        self, index: int, mode: Mode
+    ) -> tuple[Metadata, np.ndarray, Polygon]:
+        if (vals := self.cached_masked_tiles.get(index, None)) is None:
+            rasterio.open
+            with rasterio.open(self.path) as src:
+                metadata, window, bounds = self.get_tile_bounds(index)
+                landslides = self.get_tile_landslides(index, mode)
+                array = src.read(window=window)
+                if not landslides.empty:
+                    memfile = MemoryFile()
+                    dataset = memfile.open(**metadata)
+                    dataset.write(array)
+                    mask, _, _ = raster_geometry_mask(
+                        dataset, landslides, all_touched=True, invert=True
+                    )
+                    mask = np.expand_dims(mask.astype('int8'), 0)
+                else:
+                    mask = np.zeros(array.shape)
+                self.cached_masked_tiles[index] = (
+                    metadata,
+                    mask,
+                    bounds,
+                )
+                return self.cached_masked_tiles[index]
+        return vals
+
+    def mask(
+        self,
+        geometry: BaseGeometry,
+        overwrite: bool = False,
+        mask_kwargs: dict[str, t.Any] | None = None,
+    ) -> np.ndarray:
+        if mask_kwargs is None:
+            mask_kwargs = {}
+        mask_kwargs.setdefault('crop', True)
+        mask_kwargs.setdefault('filled', True)
+        with rasterio.open(self.path) as src:
+            out_image, transformed = rasterio.mask.mask(
+                src, [geometry], **mask_kwargs
+            )
+            out_profile = src.profile.copy()
+
+            out_profile.update(
+                {
+                    'width': out_image.shape[2],
+                    'height': out_image.shape[1],
+                    'transform': transformed,
+                }
+            )
+            out_profile.setdefault('crs', rasterio.crs.CRS.from_epsg(EPSG))
+        if overwrite:
+            with rasterio.open(self.path, 'w', **out_profile) as dst:
+                dst.write(out_image)
+        return out_image
 
 
 def compute_grids_for_dem(
@@ -566,3 +699,38 @@ def compute_grids(
     logger.debug('Merging %r for %sing' % (resampled, mode))
     merged = resampled.merge(GRIDS / mode.value / 'dem.tif')
     compute_grids_for_dem(merged, saga, mode, variables)
+
+
+def get_grid_for_variable(
+    variable: GeomorphometricalVariable, tile_config: TileConfig, mode: Mode
+) -> Grid:
+    return Grid(
+        (GRIDS / mode.value / variable.value).with_suffix('.tif'),
+        tile_config,
+    )
+
+
+T = t.TypeVar('T', bound=GeomorphometricalVariable)
+
+
+def get_grid_types_for_variable(
+    variable: T, tile_config: TileConfig
+) -> tuple[T, GridTypes]:
+    image_folders = {}
+    for mode in Mode:
+        image_folders[mode] = get_grid_for_variable(variable, tile_config, mode)
+    return (variable, t.cast(GridTypes, image_folders))
+
+
+def get_grid_types(
+    tile_config: TileConfig,
+) -> dict[GeomorphometricalVariable, GridTypes]:
+    func = partial(get_grid_types_for_variable, tile_config=tile_config)
+    logger.info(
+        'Creating tiles with %r for all of the geomorphometrical variables'
+        % tile_config
+    )
+    # results = [func(variable) for variable in GeomorphometricalVariable]
+    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
+        results = executor.map(func, GeomorphometricalVariable)
+    return {variable: image_folders for variable, image_folders in results}

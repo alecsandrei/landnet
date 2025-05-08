@@ -8,21 +8,23 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from landnet._typing import (
-    AnyLandslideDataset,
-    LandslideDataset,
-)
 from landnet.enums import GeomorphometricalVariable
-from landnet.features.tiles import (
-    DEFAULT_CLASS_BALANCE,
-    create_dataloader,
-)
 from landnet.logger import create_logger
-from landnet.modelling.models import read_legacy_checkpoint
-from landnet.modelling.stats import BinaryClassificationMetricCollection
+from landnet.modelling.classification.dataset import (
+    DEFAULT_CLASS_BALANCE,
+    create_classification_dataloader,
+)
+from landnet.modelling.classification.models import read_legacy_checkpoint
+from landnet.modelling.classification.stats import (
+    BinaryClassificationMetricCollection,
+)
 
 if t.TYPE_CHECKING:
-    from landnet._typing import TuneSpace
+    from landnet._typing import (
+        AnyLandslideDataset,
+        LandslideClassifiicationDataset,
+        TuneSpace,
+    )
 
 logger = create_logger(__name__)
 
@@ -129,7 +131,7 @@ class LandslideImageDataModule(pl.LightningDataModule):
         variables: c.Sequence[GeomorphometricalVariable],
         train_dataset: AnyLandslideDataset | None = None,
         validation_dataset: AnyLandslideDataset | None = None,
-        test_dataset: LandslideDataset | None = None,
+        test_dataset: LandslideClassifiicationDataset | None = None,
     ):
         super().__init__()
         self.config = config
@@ -142,7 +144,7 @@ class LandslideImageDataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         assert self.train_dataset is not None
-        return create_dataloader(
+        return create_classification_dataloader(
             self.train_dataset,
             batch_size=self.config['batch_size'],
             num_workers=4,

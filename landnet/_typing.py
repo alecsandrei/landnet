@@ -6,25 +6,30 @@ import typing as t
 if t.TYPE_CHECKING:
     from torch.utils.data import Subset
 
-    from landnet.features.tiles import (
-        ConcatLandslideImages,
-        LandslideImages,
-        TileConfig,
+    from landnet.features.grids import Grid
+    from landnet.features.tiles import TileConfig
+    from landnet.modelling.classification.dataset import (
+        ConcatLandslideImageClassification,
+        LandslideImageClassification,
     )
 
 Metadata = dict[str, t.Any]
 PathLike = os.PathLike | str
 
-type LandslideDataset = LandslideImages | ConcatLandslideImages
-type AnyLandslideDataset = LandslideDataset | Subset[LandslideDataset]
+type LandslideClassifiicationDataset = (
+    LandslideImageClassification | ConcatLandslideImageClassification
+)
+type AnyLandslideDataset = (
+    LandslideClassifiicationDataset | Subset[LandslideClassifiicationDataset]
+)
 type TrainTestValidation = tuple[
-    AnyLandslideDataset, AnyLandslideDataset, LandslideDataset
+    AnyLandslideDataset, AnyLandslideDataset, LandslideClassifiicationDataset
 ]
 
 
-class ImageFolders(t.TypedDict):
-    train: LandslideImages
-    test: LandslideImages
+class GridTypes(t.TypedDict):
+    train: Grid
+    test: Grid
 
 
 class TileProperties(t.TypedDict):

@@ -20,7 +20,7 @@ from landnet.logger import create_logger
 if t.TYPE_CHECKING:
     from pathlib import Path
 
-    from landnet.features.tiles import LandslideImages
+    from landnet.modelling.classification.dataset import LandslideImages
 
 logger = create_logger(__name__)
 
