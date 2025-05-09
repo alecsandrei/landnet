@@ -8,20 +8,20 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
+from landnet.config import DEFAULT_CLASS_BALANCE
 from landnet.enums import GeomorphometricalVariable
 from landnet.logger import create_logger
 from landnet.modelling.classification.dataset import (
-    DEFAULT_CLASS_BALANCE,
     create_classification_dataloader,
 )
-from landnet.modelling.classification.models import read_legacy_checkpoint
 from landnet.modelling.classification.stats import (
     BinaryClassificationMetricCollection,
 )
+from landnet.modelling.models import read_legacy_checkpoint
 
 if t.TYPE_CHECKING:
     from landnet._typing import (
-        AnyLandslideDataset,
+        AnyLandslideClassificationDataset,
         LandslideClassifiicationDataset,
         TuneSpace,
     )
@@ -129,8 +129,8 @@ class LandslideImageDataModule(pl.LightningDataModule):
         self,
         config: TuneSpace,
         variables: c.Sequence[GeomorphometricalVariable],
-        train_dataset: AnyLandslideDataset | None = None,
-        validation_dataset: AnyLandslideDataset | None = None,
+        train_dataset: AnyLandslideClassificationDataset | None = None,
+        validation_dataset: AnyLandslideClassificationDataset | None = None,
         test_dataset: LandslideClassifiicationDataset | None = None,
     ):
         super().__init__()

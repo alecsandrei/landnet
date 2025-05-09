@@ -274,7 +274,7 @@ def get_inference_transform() -> Compose:
         [
             Pad(100),
             CenterCrop((100, 100)),
-            ResizeTensor((224, 224)),
+            ResizeTensor([224, 224]),
             Lambda(lambda x: (x - x.min()) / (x.max() - x.min())),
             Normalize(mean=0.5, std=0.5),
         ]

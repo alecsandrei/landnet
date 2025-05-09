@@ -6,7 +6,7 @@ import typing as t
 import uuid
 from pathlib import Path
 
-from landnet.enums import Architecture
+from landnet.enums import Architecture, LandslideClass
 
 # Paths
 PROJ_ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +54,10 @@ OVERWRITE = bool(
 OVERLAP = int(os.getenv('OVERLAP', 0))
 
 TEMP_RAY_TUNE_DIR = MODELS_DIR / 'temp_ray_tune'
+DEFAULT_CLASS_BALANCE = {
+    LandslideClass.NO_LANDSLIDE: 0.3,
+    LandslideClass.LANDSLIDE: 0.7,
+}
 
 
 def save_vars_as_json(out_file: Path):

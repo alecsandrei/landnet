@@ -605,7 +605,7 @@ class Grid:
                     src.read(window=window),
                 )
 
-    def get_masked_tile(
+    def get_tile_mask(
         self, index: int, mode: Mode
     ) -> tuple[Metadata, np.ndarray, Polygon]:
         if (vals := self.cached_masked_tiles.get(index, None)) is None:
@@ -618,12 +618,17 @@ class Grid:
                     memfile = MemoryFile()
                     dataset = memfile.open(**metadata)
                     dataset.write(array)
-                    mask, _, _ = raster_geometry_mask(
+                    landslide_mask_raw, _, _ = raster_geometry_mask(
                         dataset, landslides, all_touched=True, invert=True
                     )
-                    mask = np.expand_dims(mask.astype('int8'), 0)
+                    landslide_mask = np.expand_dims(landslide_mask_raw, 0)
                 else:
-                    mask = np.zeros(array.shape)
+                    landslide_mask = np.zeros(array.shape)
+                mask = np.concatenate(
+                    [np.logical_not(landslide_mask), landslide_mask]
+                ).astype('uint8')
+                # TODO: remove this assertion
+                assert (mask.sum(axis=0) == 1).all()
                 self.cached_masked_tiles[index] = (
                     metadata,
                     mask,

@@ -9,18 +9,11 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset, Subset, WeightedRandomSampler
 
+from landnet.config import LANDSLIDE_DENSITY_THRESHOLD
 from landnet.enums import LandslideClass, Mode
 from landnet.logger import create_logger
 from landnet.modelling.classification.models import apply_pca_on_channels
 from landnet.modelling.dataset import LandslideImages
-
-if t.TYPE_CHECKING:
-    pass
-
-DEFAULT_CLASS_BALANCE = {
-    LandslideClass.NO_LANDSLIDE: 0.3,
-    LandslideClass.LANDSLIDE: 0.7,
-}
 
 logger = create_logger(__name__)
 
@@ -69,6 +62,7 @@ class ConcatLandslideImageClassification(Dataset):
 
 @dataclass
 class LandslideImageClassification(LandslideImages):
+    landslide_density_threshold: float = LANDSLIDE_DENSITY_THRESHOLD
     data_indices: dict[int, list[int]] = field(init=False)
 
     def __post_init__(self):
@@ -119,7 +113,8 @@ class LandslideImageClassification(LandslideImages):
 
     def _get_item_train(self, index: int) -> tuple[torch.Tensor, int]:
         tile, label = self._get_tile(index)
-        tile = self.augument_transform(tile)
+        if self.augment_transform is not None:
+            tile = self.augment_transform(tile)
         return (tile, label)
 
     def _get_item_test(self, index: int) -> tuple[torch.Tensor, int]:

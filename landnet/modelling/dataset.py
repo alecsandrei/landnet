@@ -6,8 +6,9 @@ from dataclasses import dataclass
 
 import numpy as np
 from torch.utils.data import Dataset
-from torchvision.transforms import (
+from torchvision.transforms.v2 import (
     Compose,
+    InterpolationMode,
     Lambda,
     Normalize,
     RandomHorizontalFlip,
@@ -18,7 +19,6 @@ from torchvision.transforms import (
 
 from landnet.config import (
     GRIDS,
-    LANDSLIDE_DENSITY_THRESHOLD,
 )
 from landnet.enums import Mode
 
@@ -28,35 +28,47 @@ if t.TYPE_CHECKING:
     from landnet.features.grids import Grid
 
 
+@dataclass
 class ResizeTensor:
-    def __init__(self, size):
-        self.size = size
+    size: list[int]
+    interpolation: InterpolationMode = InterpolationMode.BILINEAR
 
     def __call__(self, img: Tensor) -> Tensor:
-        return functional.resize(img, self.size)
+        return functional.resize(
+            img, self.size, interpolation=self.interpolation
+        )
 
 
 class RotateTensor:
     def __init__(self, angles: c.Sequence[int]):
         self.angles = angles
 
-    def __call__(self, img: Tensor) -> Tensor:
+    def __call__(self, *imgs: Tensor) -> list[Tensor]:
         choice = np.random.choice(self.angles)
-        return functional.rotate(img, int(choice))
+        return [functional.rotate(img, int(choice)) for img in imgs]
 
 
 def get_default_transform():
     return Compose(
         [
             ToTensor(),
-            ResizeTensor((224, 224)),
+            ResizeTensor([224, 224]),
             Lambda(lambda x: (x - x.min()) / (x.max() - x.min())),
-            Normalize(mean=0.5, std=0.5),
+            Normalize(mean=[0.5], std=[0.5]),
         ]
     )
 
 
-def get_default_augument_transform():
+def get_default_mask_transform():
+    return Compose(
+        [
+            ToTensor(),
+            ResizeTensor([224, 224], interpolation=InterpolationMode.NEAREST),
+        ]
+    )
+
+
+def get_default_augment_transform():
     return Compose(
         [
             RandomHorizontalFlip(p=0.5),
@@ -69,20 +81,12 @@ def get_default_augument_transform():
 @dataclass
 class LandslideImages(Dataset):
     grid: Grid
-    landslide_density_threshold: float = LANDSLIDE_DENSITY_THRESHOLD
+    transform: c.Callable | None = get_default_transform()
+    augment_transform: c.Callable | None = None
     transforms: c.Callable | None = None
-    transform: c.Callable | None = None
 
-    def __post_init__(
-        self,
-    ) -> None:
+    def __post_init__(self) -> None:
         self.overlap = 0
-        self.transform = (
-            self.transform
-            if self.transform is not None
-            else get_default_transform()
-        )
-        self.augument_transform = get_default_augument_transform()
         self.mode = (
             Mode.TRAIN
             if self.grid.path.is_relative_to(GRIDS / 'train')

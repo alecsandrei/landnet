@@ -12,6 +12,10 @@ if t.TYPE_CHECKING:
         ConcatLandslideImageClassification,
         LandslideImageClassification,
     )
+    from landnet.modelling.segmentation.dataset import (
+        ConcatLandslideImageSegmentation,
+        LandslideImageSegmentation,
+    )
 
 Metadata = dict[str, t.Any]
 PathLike = os.PathLike | str
@@ -19,11 +23,25 @@ PathLike = os.PathLike | str
 type LandslideClassifiicationDataset = (
     LandslideImageClassification | ConcatLandslideImageClassification
 )
-type AnyLandslideDataset = (
+type AnyLandslideClassificationDataset = (
     LandslideClassifiicationDataset | Subset[LandslideClassifiicationDataset]
 )
-type TrainTestValidation = tuple[
-    AnyLandslideDataset, AnyLandslideDataset, LandslideClassifiicationDataset
+type ClassificationTrainTestValidation = tuple[
+    AnyLandslideClassificationDataset,
+    AnyLandslideClassificationDataset,
+    LandslideClassifiicationDataset,
+]
+
+type LandslideSegmentationDataset = (
+    LandslideImageSegmentation | ConcatLandslideImageSegmentation
+)
+type AnyLandslideSegmentationDataset = (
+    LandslideSegmentationDataset | Subset[LandslideSegmentationDataset]
+)
+type SegmentationTrainTestValidation = tuple[
+    AnyLandslideSegmentationDataset,
+    AnyLandslideSegmentationDataset,
+    LandslideSegmentationDataset,
 ]
 
 

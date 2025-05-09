@@ -46,7 +46,7 @@ from landnet.modelling.tune import get_tuner
 from landnet.utils import get_utc_now
 
 if t.TYPE_CHECKING:
-    from landnet._typing import TrainTestValidation, TuneSpace
+    from landnet._typing import ClassificationTrainTestValidation, TuneSpace
     from landnet.modelling.tune import MetricSorter
 
 logger = create_logger(__name__)
@@ -217,7 +217,7 @@ def get_datsets_from_cacher(
     cacher: ray.ObjectRef[LandslideImageClassificationCacher],  # type: ignore
     config: TuneSpace,
     variables: c.Sequence[GeomorphometricalVariable],
-) -> TrainTestValidation:
+) -> ClassificationTrainTestValidation:
     train = ray.get(
         [
             cacher.setdefault.remote(  # type: ignore
