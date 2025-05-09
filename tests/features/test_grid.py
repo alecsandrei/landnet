@@ -16,17 +16,16 @@ GRID = DATA_DIR / 'test_grid.tif'
 
 
 def test_get_masked_tile():
-    expected_shape = (1, 25, 25)
+    expected_shape = (2, 25, 25)
     config = TileConfig(
         TileSize(expected_shape[1], expected_shape[2]), overlap=0
     )
     grid = Grid(GRID, config, landslides=LANDSLIDES.geometry)
     _, array, _ = grid.get_tile_mask(399, Mode.TRAIN)  # has landslides
-    assert 0 in array
-    assert 1 in array
     assert array.shape == expected_shape
+    assert 1 in array[1, :, :]
     _, array, _ = grid.get_tile_mask(0, Mode.TRAIN)  # does not have landslides
-    assert (array == 0).all()
+    assert (array[0, :, :] == 1).all()
     assert array.shape == expected_shape
 
 
