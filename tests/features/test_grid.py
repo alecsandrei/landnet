@@ -21,13 +21,11 @@ def test_get_masked_tile():
         TileSize(expected_shape[1], expected_shape[2]), overlap=0
     )
     grid = Grid(GRID, config, landslides=LANDSLIDES.geometry)
-    _, array, _ = grid.get_masked_tile(399, Mode.TRAIN)  # has landslides
+    _, array, _ = grid.get_tile_mask(399, Mode.TRAIN)  # has landslides
     assert 0 in array
     assert 1 in array
     assert array.shape == expected_shape
-    _, array, _ = grid.get_masked_tile(
-        0, Mode.TRAIN
-    )  # does not have landslides
+    _, array, _ = grid.get_tile_mask(0, Mode.TRAIN)  # does not have landslides
     assert (array == 0).all()
     assert array.shape == expected_shape
 
