@@ -13,7 +13,9 @@ from landnet.config import LANDSLIDE_DENSITY_THRESHOLD
 from landnet.enums import LandslideClass, Mode
 from landnet.logger import create_logger
 from landnet.modelling.classification.models import apply_pca_on_channels
-from landnet.modelling.dataset import LandslideImages
+from landnet.modelling.dataset import (
+    LandslideImages,
+)
 
 logger = create_logger(__name__)
 
@@ -41,22 +43,32 @@ class PCAConcatLandslideImageClassification(Dataset):
         return (apply_pca_on_channels(tile, self.num_components), class_)
 
 
+@dataclass
 class ConcatLandslideImageClassification(Dataset):
-    def __init__(
-        self,
-        landslide_images: c.Sequence[LandslideImageClassification],
-    ):
-        self.landslide_images = landslide_images
-        self.data_indices = landslide_images[0].data_indices
+    landslide_images: c.Sequence[LandslideImageClassification]
+    augment_transform: c.Callable | None = None
+    data_indices: dict[int, list[int]] = field(init=False)
+
+    def __post_init__(self):
+        self.data_indices = self.landslide_images[0].data_indices
 
     def __len__(self):
         return len(self.landslide_images[0])
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
+        if any(
+            landslide_images.augment_transform is not None
+            for landslide_images in self.landslide_images
+        ):
+            logger.error(
+                'Found "augment_transform" for landslide_images. This might result in unexpected behaviour'
+            )
         image_batch = [images[index] for images in self.landslide_images]
-        cat = torch.cat([batch[0] for batch in image_batch], dim=0)
+        images = [images[0] for images in image_batch]
         class_ = image_batch[0][1]
-        assert all(batch[1] == class_ for batch in image_batch[1:])
+        if self.augment_transform is not None:
+            images = self.augment_transform(*images)
+        cat = torch.cat(images, dim=0)
         return (cat, class_)
 
 
@@ -105,9 +117,11 @@ class LandslideImageClassification(LandslideImages):
     def _get_tile(self, index: int) -> tuple[torch.Tensor, int]:
         _, arr, _ = self.grid.get_tile(index)
         tile_class = self._get_tile_class(index)
-        tile = arr.squeeze(0)
+        arr = arr.squeeze(0)
         if self.transform is not None:
             tile = self.transform(arr)
+        else:
+            tile = torch.from_numpy(arr)
         assert isinstance(tile, torch.Tensor)
         return tile, tile_class
 
@@ -123,9 +137,9 @@ class LandslideImageClassification(LandslideImages):
     def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
         if self.mode is Mode.TRAIN:
             return self._get_item_train(index)
-        elif self.mode is Mode.TEST:
+        elif self.mode in (Mode.TEST, Mode.INFERENCE):
             return self._get_item_test(index)
-        raise ValueError('Mode should only be "train" or "test"')
+        raise ValueError('Mode should only be "train", "inference" or "test"')
 
 
 def get_classification_dataloader(

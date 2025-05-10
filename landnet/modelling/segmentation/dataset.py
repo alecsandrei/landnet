@@ -46,7 +46,7 @@ class ConcatLandslideImageSegmentation(Dataset):
         mask = image_batch[0][1]
         if self.augment_transform is not None:
             mask, *images = self.augment_transform(mask, *images)
-        cat = torch.cat([batch[0] for batch in image_batch], dim=0)
+        cat = torch.cat(images, dim=0)
         return (cat, mask)
 
 

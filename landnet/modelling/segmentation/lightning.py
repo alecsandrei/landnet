@@ -215,7 +215,8 @@ class LandslideImageSegmentationDataModule(pl.LightningDataModule):
             ]
             dataset = ConcatLandslideImageSegmentation(
                 landslide_images=[
-                    LandslideImageSegmentation(grid) for grid in train_grids
+                    LandslideImageSegmentation(grid, Mode.TRAIN)
+                    for grid in train_grids
                 ],
                 augment_transform=None,
             )
@@ -227,7 +228,8 @@ class LandslideImageSegmentationDataModule(pl.LightningDataModule):
             ).augment_transform = get_default_augment_transform()
             self.test_dataset = ConcatLandslideImageSegmentation(
                 landslide_images=[
-                    LandslideImageSegmentation(grid) for grid in test_grids
+                    LandslideImageSegmentation(grid, Mode.TEST)
+                    for grid in test_grids
                 ],
                 augment_transform=None,
             )

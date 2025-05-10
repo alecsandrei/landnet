@@ -25,6 +25,7 @@ from landnet.config import (
     OVERWRITE,
     TEMP_RAY_TUNE_DIR,
     TRIAL_NAME,
+    save_vars_as_json,
 )
 from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.grids import get_grid_for_variable
@@ -42,6 +43,7 @@ from landnet.modelling.classification.lightning import (
     LandslideImageDataModule,
 )
 from landnet.modelling.classification.models import get_architecture
+from landnet.modelling.dataset import get_default_augment_transform
 from landnet.modelling.tune import get_tuner
 from landnet.utils import get_utc_now
 
@@ -82,6 +84,7 @@ def save_experiment(
     ) as file:
         for var in variables:
             file.write(f'{str(var)}\n')
+    save_vars_as_json(experiment_out_dir / 'config.json')
 
 
 def train_model(
@@ -193,7 +196,7 @@ class LandslideImageClassificationCacher:
         if mode not in map_:
             logger.info('%r' % mode)
             grid = get_grid_for_variable(variable, tile_config, mode)
-            map_[mode] = LandslideImageClassification(grid)
+            map_[mode] = LandslideImageClassification(grid, mode)
         return map_[mode]
 
     def set(
@@ -235,7 +238,9 @@ def get_datsets_from_cacher(
         ]
     )
     if len(variables) > 1:
-        dataset = ConcatLandslideImageClassification(train)
+        dataset = ConcatLandslideImageClassification(
+            train, augment_transform=get_default_augment_transform()
+        )
         train_dataset, validation_dataset = random_split(dataset, (0.7, 0.3))
         test_dataset = ConcatLandslideImageClassification(test)
         return (train_dataset, validation_dataset, test_dataset)

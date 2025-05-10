@@ -62,7 +62,7 @@ class InferTrainTest:
         grid = (GRIDS / mode.value / variable.value).with_suffix('.tif')
         tile_config = tune_space['tile_config']
         tile_config.overlap = 0  # In inferance mode, this should be 0
-        return LandslideImageClassification(Grid(grid, tile_config))
+        return LandslideImageClassification(Grid(grid, tile_config), mode=mode)
 
     def _get_predictions(
         self, classifier: LandslideImageClassifier, dataloader: DataLoader

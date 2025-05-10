@@ -81,6 +81,7 @@ def get_default_augment_transform():
 @dataclass
 class LandslideImages(Dataset):
     grid: Grid
+    mode: Mode
     transform: c.Callable | None = get_default_transform()
     augment_transform: c.Callable | None = None
     transforms: c.Callable | None = None
