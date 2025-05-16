@@ -205,14 +205,7 @@ class LandslideImageSegmentationDataModule(pl.LightningDataModule):
                 )
                 for variable in self.variables
             ]
-            test_grids = [
-                get_grid_for_variable(
-                    variable,
-                    tile_config=self.config['tile_config'],
-                    mode=Mode.TEST,
-                )
-                for variable in self.variables
-            ]
+
             dataset = ConcatLandslideImageSegmentation(
                 landslide_images=[
                     LandslideImageSegmentation(grid, Mode.TRAIN)
@@ -226,6 +219,15 @@ class LandslideImageSegmentationDataModule(pl.LightningDataModule):
             t.cast(
                 ConcatLandslideImageSegmentation, self.train_dataset.dataset
             ).augment_transform = get_default_augment_transform()
+        if self.test_dataset is None:
+            test_grids = [
+                get_grid_for_variable(
+                    variable,
+                    tile_config=self.config['tile_config'],
+                    mode=Mode.TEST,
+                )
+                for variable in self.variables
+            ]
             self.test_dataset = ConcatLandslideImageSegmentation(
                 landslide_images=[
                     LandslideImageSegmentation(grid, Mode.TEST)

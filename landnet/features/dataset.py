@@ -16,7 +16,6 @@ from landnet.enums import Mode
 
 if t.TYPE_CHECKING:
     from pathlib import Path
-
     from landnet.features.grids import Grid
 
 

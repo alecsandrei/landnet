@@ -55,8 +55,8 @@ OVERLAP = int(os.getenv('OVERLAP', 0))
 
 TEMP_RAY_TUNE_DIR = MODELS_DIR / 'temp_ray_tune'
 DEFAULT_CLASS_BALANCE = {
-    LandslideClass.NO_LANDSLIDE: 0.3,
-    LandslideClass.LANDSLIDE: 0.7,
+    LandslideClass.NO_LANDSLIDE: 0.5,
+    LandslideClass.LANDSLIDE: 0.5,
 }
 
 

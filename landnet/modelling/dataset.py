@@ -16,16 +16,17 @@ from torchvision.transforms.v2 import (
     ToTensor,
     functional,
 )
-
 from landnet.config import (
     GRIDS,
 )
 from landnet.enums import Mode
-
+from landnet.logger import create_logger
 if t.TYPE_CHECKING:
     from torch import Tensor
 
     from landnet.features.grids import Grid
+
+logger = create_logger(__name__)
 
 
 @dataclass
@@ -48,22 +49,22 @@ class RotateTensor:
         return [functional.rotate(img, int(choice)) for img in imgs]
 
 
-def get_default_transform():
+def get_default_transform(size: int = 224):
     return Compose(
         [
             ToTensor(),
-            ResizeTensor([224, 224]),
+            ResizeTensor([size, size]),
             Lambda(lambda x: (x - x.min()) / (x.max() - x.min())),
             Normalize(mean=[0.5], std=[0.5]),
         ]
     )
 
 
-def get_default_mask_transform():
+def get_default_mask_transform(size: int = 224):
     return Compose(
         [
             ToTensor(),
-            ResizeTensor([224, 224], interpolation=InterpolationMode.NEAREST),
+            ResizeTensor([size, size], interpolation=InterpolationMode.NEAREST),
         ]
     )
 
@@ -93,6 +94,11 @@ class LandslideImages(Dataset):
             if self.grid.path.is_relative_to(GRIDS / 'train')
             else Mode.TEST
         )
+        if self.augment_transform is not None:
+            logger.debug(
+                'augment_transform parameter was provided for %r'
+                % self.__class__.__name__
+            )
 
     def __len__(self) -> int:
         return self.grid.get_tiles_length()
