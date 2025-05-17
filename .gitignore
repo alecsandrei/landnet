@@ -194,3 +194,6 @@ reports/figures/*
 
 # External data
 data/external
+
+# Jupyter notebook stuff
+.virtual_documents
