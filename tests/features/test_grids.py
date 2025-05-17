@@ -4,6 +4,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import pytest
+import rasterio
 
 from landnet.enums import Mode
 from landnet.features.grids import Grid
@@ -49,3 +50,17 @@ def test_get_tiles():
     grid = Grid(GRID, config, landslides=LANDSLIDES.geometry)
     for metadata, array in grid.get_tiles():
         assert array.shape == expected_shape
+
+
+@pytest.mark.dependency(depends=['test_get_tile'])
+def test_write_tile(tmp_path: Path):
+    expected_shape = (1, 25, 25)
+    config = TileConfig(
+        TileSize(expected_shape[1], expected_shape[2]), overlap=0
+    )
+    grid = Grid(GRID, config, landslides=LANDSLIDES.geometry)
+    _, tile_array, _ = grid.get_tile(0)
+    out_file = grid.write_tile(0, tile_array, out_dir=tmp_path)
+    with rasterio.open(out_file) as src:
+        array = src.read(1)
+        assert array.shape == tile_array.shape[1:]

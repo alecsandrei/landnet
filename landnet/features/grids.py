@@ -21,7 +21,6 @@ from rasterio.mask import raster_geometry_mask
 from shapely import Polygon, box
 from shapely.geometry.base import BaseGeometry
 
-from landnet.typing import GridTypes, Metadata
 from landnet.config import (
     EPSG,
     GRIDS,
@@ -37,6 +36,7 @@ from landnet.features.dataset import (
 )
 from landnet.features.tiles import RasterTiles, TileConfig, TileHandler
 from landnet.logger import create_logger
+from landnet.typing import GridTypes, Metadata
 
 if t.TYPE_CHECKING:
     from os import PathLike
@@ -594,10 +594,21 @@ class Grid:
         array: np.ndarray,
         prefix: str | None = None,
         out_dir: Path | None = None,
-    ):
-        # TODO: implement this
-        with rasterio.open(self.path) as src:  # noqa: F841
-            metadata, window, bounds = self.get_tile_bounds(index)
+    ) -> Path:
+        if out_dir is None:
+            out_dir = self.path.parent
+        if prefix is None:
+            prefix = f'_{str(index)}'
+        out_file = out_dir / f'{prefix}{self.path.name}'
+
+        metadata, tile_array, bounds = self.get_tile(index)
+        if not array.shape == tile_array.shape:
+            raise Exception(
+                f'shape mismatch between arrays: {array.shape} -> {tile_array.shape}'
+            )
+        with rasterio.open(out_file, mode='w', **metadata) as dest:
+            dest.write(array)
+        return out_file
 
     def get_tiles(self) -> c.Generator[tuple[Metadata, np.ndarray]]:
         assert self.tile_handler is not None
