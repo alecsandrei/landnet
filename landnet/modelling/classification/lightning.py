@@ -20,7 +20,7 @@ from landnet.modelling.classification.stats import (
 from landnet.modelling.models import read_legacy_checkpoint
 
 if t.TYPE_CHECKING:
-    from landnet._typing import (
+    from landnet.typing import (
         AnyLandslideClassificationDataset,
         LandslideClassifiicationDataset,
         TuneSpace,

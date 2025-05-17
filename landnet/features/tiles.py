@@ -18,7 +18,7 @@ from rasterio.enums import Resampling
 from rasterio.features import dataset_features
 from shapely import box
 
-from landnet._typing import Metadata
+from landnet.typing import Metadata
 from landnet.config import (
     EPSG,
     NODATA,

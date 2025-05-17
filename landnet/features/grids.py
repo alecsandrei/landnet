@@ -21,7 +21,7 @@ from rasterio.mask import raster_geometry_mask
 from shapely import Polygon, box
 from shapely.geometry.base import BaseGeometry
 
-from landnet._typing import GridTypes, Metadata
+from landnet.typing import GridTypes, Metadata
 from landnet.config import (
     EPSG,
     GRIDS,
@@ -587,6 +587,17 @@ class Grid:
                 )
                 return self.cached_tile[index]
         return vals
+
+    def write_tile(
+        self,
+        index: int,
+        array: np.ndarray,
+        prefix: str | None = None,
+        out_dir: Path | None = None,
+    ):
+        # TODO: implement this
+        with rasterio.open(self.path) as src:  # noqa: F841
+            metadata, window, bounds = self.get_tile_bounds(index)
 
     def get_tiles(self) -> c.Generator[tuple[Metadata, np.ndarray]]:
         assert self.tile_handler is not None

@@ -10,7 +10,7 @@ import numpy as np
 from shapely import MultiPolygon, Polygon, box, from_geojson
 from shapely.geometry.base import BaseGeometry
 
-from landnet._typing import Feature, GeoJSON
+from landnet.typing import Feature, GeoJSON
 from landnet.config import EPSG, RAW_DATA_DIR
 from landnet.enums import Mode
 

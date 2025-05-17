@@ -43,7 +43,7 @@ from landnet.plots import get_confusion_matrix, get_roc_curve
 from landnet.utils import save_fig
 
 if t.TYPE_CHECKING:
-    from landnet._typing import TuneSpace
+    from landnet.typing import TuneSpace
     from landnet.modelling.tune import MetricSorter
 
 logger = create_logger(__name__)

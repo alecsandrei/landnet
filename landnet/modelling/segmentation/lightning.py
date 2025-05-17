@@ -21,7 +21,7 @@ from landnet.modelling.segmentation.dataset import (
 from landnet.modelling.segmentation.stats import SegmentationMetricCollection
 
 if t.TYPE_CHECKING:
-    from landnet._typing import (
+    from landnet.typing import (
         AnyLandslideSegmentationDataset,
         TuneSpace,
     )

@@ -21,7 +21,7 @@ from landnet.features.tiles import (
 )
 
 if t.TYPE_CHECKING:
-    from landnet._typing import GridTypes
+    from landnet.typing import GridTypes
 
 
 def get_raster_tiles(mode: Mode) -> RasterTiles:
