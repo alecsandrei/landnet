@@ -10,7 +10,6 @@ from landnet.enums import LandslideClass, Mode
 from landnet.logger import create_logger
 from landnet.modelling.dataset import (
     LandslideImages,
-    get_default_augment_transform,
     get_default_mask_transform,
 )
 
@@ -28,7 +27,7 @@ logger = create_logger(__name__)
 @dataclass
 class ConcatLandslideImageSegmentation(Dataset):
     landslide_images: c.Sequence[LandslideImageSegmentation]
-    augment_transform: c.Callable | None = get_default_augment_transform()
+    augment_transform: c.Callable | None = None
 
     def __len__(self):
         return len(self.landslide_images[0])

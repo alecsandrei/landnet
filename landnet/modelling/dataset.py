@@ -16,11 +16,13 @@ from torchvision.transforms.v2 import (
     ToTensor,
     functional,
 )
+
 from landnet.config import (
     GRIDS,
 )
 from landnet.enums import Mode
 from landnet.logger import create_logger
+
 if t.TYPE_CHECKING:
     from torch import Tensor
 

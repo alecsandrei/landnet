@@ -76,7 +76,8 @@ class SaveTrial(tune.Callback):
         result = self._get_best_result([trial])
         assert result.config is not None
         logger.info('Trainable name: %s' % trial.path)
-        infer = InferTrainTest(self.variables, self.sorter, Path(trial.path))  # type: ignore
+        assert trial.path is not None
+        infer = InferTrainTest(self.variables, Path(trial.path))
         infer.handle_checkpoint(
             self.get_best_checkpoint(result), result.config['train_loop_config']
         )
@@ -87,7 +88,7 @@ class SaveTrial(tune.Callback):
         result = self._get_best_result(trials)
 
         assert result.config is not None
-        infer = InferTrainTest(self.variables, self.sorter, Path(result.path))
+        infer = InferTrainTest(self.variables, Path(result.path))
         infer.handle_checkpoint(
             self.get_best_checkpoint(result), result.config['train_loop_config']
         )

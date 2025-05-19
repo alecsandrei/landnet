@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections.abc as c
 import typing as t
 
 from torch import nn
@@ -13,15 +14,20 @@ from torchvision.models.segmentation import (
 )
 
 from landnet.config import PRETRAINED
+from landnet.enums import Architecture, Mode
 from landnet.modelling.models import ModelBuilder
 
 M = t.TypeVar('M', bound=nn.Module)
 
 
-class DeepLabV3ResNet50Builder(ModelBuilder):
-    def __init__(self, num_classes: int = 2):
-        self.num_classes = num_classes
+def get_architecture(
+    architecture: Architecture,
+) -> c.Callable[[int, Mode], nn.Module]:
+    return MODEL_BUILDERS[architecture].build
 
+
+class DeepLabV3ResNet50Builder(ModelBuilder):
+    def __init__(self):
         # we do not provide num_classes argument here because it gets
         # overriden if weights are specified (check source code of torchvision)
         super().__init__(
@@ -43,11 +49,7 @@ class DeepLabV3ResNet50Builder(ModelBuilder):
 
 
 class FCNResNet50Builder(ModelBuilder):
-    def __init__(self, num_classes: int = 2):
-        self.num_classes = num_classes
-
-        # we do not provide num_classes argument here because it gets
-        # overriden if weights are specified (check source code of torchvision)
+    def __init__(self):
         super().__init__(
             model=fcn_resnet50,
             weights=FCN_ResNet50_Weights.DEFAULT if PRETRAINED else None,
@@ -64,3 +66,9 @@ class FCNResNet50Builder(ModelBuilder):
             512, 2, kernel_size=(1, 1), stride=(1, 1)
         )
         return model
+
+
+MODEL_BUILDERS: dict[Architecture, ModelBuilder] = {
+    Architecture.DEEPLABV3: DeepLabV3ResNet50Builder(),
+    Architecture.FCN: FCNResNet50Builder(),
+}

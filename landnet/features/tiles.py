@@ -18,7 +18,6 @@ from rasterio.enums import Resampling
 from rasterio.features import dataset_features
 from shapely import box
 
-from landnet.typing import Metadata
 from landnet.config import (
     EPSG,
     NODATA,
@@ -31,6 +30,7 @@ from landnet.features.dataset import (
     process_feature,
 )
 from landnet.logger import create_logger
+from landnet.typing import Metadata
 
 logger = create_logger(__name__)
 

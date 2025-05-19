@@ -44,7 +44,6 @@ from landnet.utils import save_fig
 
 if t.TYPE_CHECKING:
     from landnet.typing import TuneSpace
-    from landnet.modelling.tune import MetricSorter
 
 logger = create_logger(__name__)
 
@@ -52,7 +51,6 @@ logger = create_logger(__name__)
 @dataclass
 class InferTrainTest:
     variables: c.Sequence[GeomorphometricalVariable]
-    sorter: MetricSorter
     out_dir: Path
 
     @staticmethod

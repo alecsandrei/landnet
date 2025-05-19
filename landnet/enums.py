@@ -60,3 +60,4 @@ class Architecture(Enum):
     CONVNEXTKAN = 'convnextkan'
     RESNET50KAN = 'resnet50kan'
     DEEPLABV3 = 'deeplabv3'
+    FCN = 'fcn'

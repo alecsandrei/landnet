@@ -3,11 +3,11 @@ from __future__ import annotations
 import datetime
 import functools
 import time
+import typing as t
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-import typing as t
 
 from landnet.logger import create_logger
 

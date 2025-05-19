@@ -10,12 +10,13 @@ import numpy as np
 from shapely import MultiPolygon, Polygon, box, from_geojson
 from shapely.geometry.base import BaseGeometry
 
-from landnet.typing import Feature, GeoJSON
 from landnet.config import EPSG, RAW_DATA_DIR
 from landnet.enums import Mode
+from landnet.typing import Feature, GeoJSON
 
 if t.TYPE_CHECKING:
     from pathlib import Path
+
     from landnet.features.grids import Grid
 
 

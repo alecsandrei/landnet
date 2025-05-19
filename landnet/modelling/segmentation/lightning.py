@@ -84,11 +84,23 @@ class LandslideImageSegmenter(pl.LightningModule):
         if isinstance(output, c.Mapping):
             # DeepLabV3 Model outputs a dictionary for some reason ?????
             output = output['out']
-
-        return (image, mask)
+        output = output.softmax(dim=1)
+        output_mask = output.argmax(dim=1)  # Shape: (batch_size, H, W)
+        return (image, output_mask)
 
     def forward(self, x):
         return self.model(x)
+
+    @staticmethod
+    def _one_hot_encode(
+        output: torch.Tensor,
+        class_indices: torch.Tensor,
+    ) -> torch.Tensor:
+        num_classes = output.shape[1]
+        output_mask = torch.nn.functional.one_hot(
+            class_indices, num_classes
+        )  # (B, H, W, C)
+        return output_mask.permute(0, 3, 1, 2)  # (B, C, H, W)
 
     def training_step(self, train_batch, batch_idx):
         image, mask = train_batch
@@ -96,10 +108,12 @@ class LandslideImageSegmenter(pl.LightningModule):
         if isinstance(output, c.Mapping):
             # DeepLabV3 Model outputs a dictionary for some reason ?????
             output = output['out']
-        output = output.sigmoid()
+        output = output.softmax(dim=1)
         loss = self.criterion(output, mask.float())
-        output_mask = output > 0.5
-        self.train_metrics.update(output_mask, mask)
+        output_mask = output.argmax(dim=1)
+        self.train_metrics.update(
+            self._one_hot_encode(output, output_mask), mask
+        )
         return loss
 
     def on_train_epoch_end(self):
@@ -118,10 +132,10 @@ class LandslideImageSegmenter(pl.LightningModule):
         if isinstance(output, c.Mapping):
             # DeepLabV3 Model outputs a dictionary for some reason ?????
             output = output['out']
-        output = output.sigmoid()
+        output = output.softmax(dim=1)
         loss = self.criterion(output, mask.float())
-        output_mask = output > 0.5
-        self.val_metrics.update(output_mask, mask)
+        output_mask = output.argmax(dim=1)
+        self.val_metrics.update(self._one_hot_encode(output, output_mask), mask)
         self.log(
             'val_loss',
             loss,
@@ -137,10 +151,12 @@ class LandslideImageSegmenter(pl.LightningModule):
         if isinstance(output, c.Mapping):
             # DeepLabV3 Model outputs a dictionary for some reason ?????
             output = output['out']
-        output = output.sigmoid()
+        output = output.softmax(dim=1)
         loss = self.criterion(output, mask.float())
-        output_mask = output > 0.5
-        self.test_metrics.update(output_mask, mask)
+        output_mask = output.argmax(dim=1)
+        self.test_metrics.update(
+            self._one_hot_encode(output, output_mask), mask
+        )
         self.log_dict(
             self.test_metrics.compute(),
             sync_dist=True,
@@ -233,7 +249,6 @@ class LandslideImageSegmentationDataModule(pl.LightningDataModule):
                     LandslideImageSegmentation(grid, Mode.TEST)
                     for grid in test_grids
                 ],
-                augment_transform=None,
             )
             logger.info('Finished setting up train and validation datasets.')
 

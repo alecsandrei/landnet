@@ -649,7 +649,6 @@ class Grid:
                 mask = np.concatenate(
                     [np.logical_not(landslide_mask), landslide_mask]
                 ).astype('uint8')
-                # TODO: remove this assertion
                 assert (mask.sum(axis=0) == 1).all()
                 self.cached_masked_tiles[index] = (
                     metadata,

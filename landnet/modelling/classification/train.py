@@ -48,8 +48,8 @@ from landnet.modelling.tune import get_tuner
 from landnet.utils import get_utc_now
 
 if t.TYPE_CHECKING:
-    from landnet.typing import ClassificationTrainTestValidation, TuneSpace
     from landnet.modelling.tune import MetricSorter
+    from landnet.typing import ClassificationTrainTestValidation, TuneSpace
 
 logger = create_logger(__name__)
 
