@@ -324,6 +324,7 @@ class RasterTiles:
             merge_kwargs = {}
         merge_kwargs.setdefault('nodata', NODATA)
         merge_kwargs.setdefault('resampling', Resampling.bilinear)
+        merge_kwargs.setdefault('target_aligned_pixels', True)
         rasterio.merge.merge(paths.values, dst_path=out_file, **merge_kwargs)
         return out_file
 
