@@ -167,7 +167,13 @@ class RasterTiles:
         cls, tiles_parent: Path, mode: Mode, suffix: str = '.tif'
     ) -> t.Self:
         geojson = get_empty_geojson()
-        images = tiles_parent.rglob(f'*{suffix}')
+        images = list(tiles_parent.rglob(f'*{suffix}'))
+        if not images:
+            logger.error(
+                'No raster images found in %r with suffix %s'
+                % (tiles_parent, suffix)
+            )
+            return cls(gpd.GeoDataFrame(geojson), tiles_parent)
 
         for image in images:
             features = get_raster_features(image)
