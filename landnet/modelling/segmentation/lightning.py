@@ -107,7 +107,7 @@ class LandslideImageSegmenter(pl.LightningModule):
         output = self.forward(image)
         if isinstance(output, c.Mapping):
             # DeepLabV3 Model outputs a dictionary for some reason ?????
-            output = output['out']
+            output: torch.Tensor = output['out']
         output = output.softmax(dim=1)
         loss = self.criterion(output, mask.float())
         output_mask = output.argmax(dim=1)
