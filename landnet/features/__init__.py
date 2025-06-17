@@ -27,11 +27,16 @@ if t.TYPE_CHECKING:
 def get_raster_tiles(mode: Mode) -> RasterTiles:
     tiles = t.cast(gpd.GeoDataFrame, get_dem_tiles()).dropna(subset='mode')
     os.makedirs((GRIDS / mode.value), exist_ok=True)
-    return RasterTiles(tiles[tiles.loc[:, 'mode'] == mode], DEM_TILES)
+    return RasterTiles(tiles[tiles.loc[:, 'mode'] == mode.value], DEM_TILES)
 
 
 def main(tile_size: TileSize) -> dict[GeomorphometricalVariable, GridTypes]:
     saga = SAGA('saga_cmd')
-    compute_grids(get_raster_tiles(Mode.TRAIN), Mode.TRAIN, saga)
-    compute_grids(get_raster_tiles(Mode.TEST), Mode.TEST, saga)
+    # compute_grids(get_raster_tiles(Mode.TRAIN), Mode.TRAIN, saga)
+    # compute_grids(get_raster_tiles(Mode.TEST), Mode.TEST, saga)
+    compute_grids(get_raster_tiles(Mode.VALIDATION), Mode.VALIDATION, saga)
     return get_grid_types(TileConfig(tile_size, overlap=OVERLAP))
+
+
+if __name__ == '__main__':
+    main(TileSize(100, 100))

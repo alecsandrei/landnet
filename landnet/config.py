@@ -18,6 +18,7 @@ EXTERNAL_DATA_DIR = DATA_DIR / 'external'
 DEM_TILES = EXTERNAL_DATA_DIR / 'DEM'
 TRAIN_TILES = INTERIM_DATA_DIR / 'train_tiles'
 TEST_TILES = INTERIM_DATA_DIR / 'test_tiles'
+VALIDATION_TILES = INTERIM_DATA_DIR / 'validation_tiles'
 INFERENCE_TILES = INTERIM_DATA_DIR / 'inference_tiles'
 GRIDS = INTERIM_DATA_DIR / 'computed_grids'
 

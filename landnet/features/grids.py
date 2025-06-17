@@ -28,6 +28,7 @@ from landnet.config import (
     INTERIM_DATA_DIR,
     TEST_TILES,
     TRAIN_TILES,
+    VALIDATION_TILES,
 )
 from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.dataset import (
@@ -717,12 +718,13 @@ def compute_grids(
         Mode.TRAIN: TRAIN_TILES,
         Mode.TEST: TEST_TILES,
         Mode.INFERENCE: INFERENCE_TILES,
+        Mode.VALIDATION: VALIDATION_TILES,
     }
     if out_dir is None:
         out_dir = dir_map[mode] / 'dem' / '100x100'
-    logger.debug('Resampling %r for %sing' % (tiles, mode))
+    logger.debug('Resampling %r for %s' % (tiles, mode))
     resampled = tiles.resample(out_dir, mode)
-    logger.debug('Merging %r for %sing' % (resampled, mode))
+    logger.debug('Merging %r for %s' % (resampled, mode))
     merged = resampled.merge(GRIDS / mode.value / 'dem.tif')
     compute_grids_for_dem(merged, saga, mode, variables)
 
