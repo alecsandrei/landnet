@@ -129,7 +129,7 @@ class TerrainAnalysis:
         tool = self.morphometry / 'Convergence Index'
         dem = self.dem_edge if self.dem_edge is not None else self.dem
         return tool.execute(
-            dem=dem,
+            elevation=dem,
             method=0,
             neighbours=0,
             verbose=self.verbose,
