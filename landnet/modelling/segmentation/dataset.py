@@ -54,7 +54,7 @@ class LandslideImageSegmentation(LandslideImages):
     mask_transform: c.Callable | None = get_default_mask_transform()
 
     def _get_tile_mask(self, index: int) -> torch.Tensor:
-        mask = self.grid.get_tile_mask(index, self.mode)[1]
+        mask = self.grid.get_tile_mask(index)[1]
         return torch.from_numpy(mask)
 
     def _get_tile(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -62,12 +62,13 @@ class LandslideImageSegmentation(LandslideImages):
         mask = self._get_tile_mask(index)
         image = image.squeeze(0)
         if self.transform is not None:
-            image = self.transform(image)
+            t_image = self.transform(image)
+        else:
+            t_image = torch.from_numpy(image)
         if self.mask_transform is not None:
             mask = self.mask_transform(mask)
 
-        assert isinstance(image, torch.Tensor)
-        return image, mask
+        return t_image, mask
 
     def _get_item_train(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         tile, mask = self._get_tile(index)
@@ -81,9 +82,9 @@ class LandslideImageSegmentation(LandslideImages):
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         if self.mode is Mode.TRAIN:
             return self._get_item_train(index)
-        elif self.mode is Mode.TEST:
+        elif self.mode in (Mode.TEST, Mode.VALIDATION, Mode.INFERENCE):
             return self._get_item_test(index)
-        raise ValueError('Mode should only be "train" or "test"')
+        raise ValueError('Mode %r is not supported' % self.mode)
 
 
 def get_segmentation_dataloader(dataset: Dataset, size: int, **kwargs):

@@ -20,16 +20,16 @@ if t.TYPE_CHECKING:
 Metadata = dict[str, t.Any]
 PathLike = os.PathLike | str
 
-type LandslideClassifiicationDataset = (
+type LandslideClassificationDataset = (
     LandslideImageClassification | ConcatLandslideImageClassification
 )
 type AnyLandslideClassificationDataset = (
-    LandslideClassifiicationDataset | Subset[LandslideClassifiicationDataset]
+    LandslideClassificationDataset | Subset[LandslideClassificationDataset]
 )
 type ClassificationTrainTestValidation = tuple[
     AnyLandslideClassificationDataset,
     AnyLandslideClassificationDataset,
-    LandslideClassifiicationDataset,
+    LandslideClassificationDataset | None,
 ]
 
 type LandslideSegmentationDataset = (

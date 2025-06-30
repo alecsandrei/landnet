@@ -8,6 +8,8 @@ from pathlib import Path
 
 from landnet.enums import Architecture, LandslideClass
 
+LOGGING_ENABLED = bool(int(os.getenv('LOGGING_ENABLED', 1)))
+
 # Paths
 PROJ_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJ_ROOT / 'data'
@@ -34,6 +36,7 @@ LOGGING_CONFIG = LOGGING_DIR / 'config.json'
 EPSG = 3844
 SAGA_CMD: str | None = None  # could be configures to specify path to saga_cmd
 NODATA = float(os.getenv('NODATA', -32767.0))
+SAGAGIS_NODATA = float(os.getenv('SAGAGIS_NODATA', -99999))
 
 # Model configs
 TRIAL_NAME = os.getenv('TRIAL_NAME', uuid.uuid4().hex)
@@ -42,16 +45,17 @@ LANDSLIDE_DENSITY_THRESHOLD = float(
 )
 ARCHITECTURE = Architecture(os.getenv('ARCHITECTURE', 'resnet50'))
 PRETRAINED = int(os.getenv('PRETRAINED', 1))
-EPOCHS = int(os.getenv('EPOCHS', 10))
+EPOCHS = int(os.getenv('EPOCHS', 5))
 GPUS = int(os.getenv('GPUS', 1))
 CPUS = int(os.getenv('CPUS', 4))
 BATCH_SIZE = int(os.getenv('BATCH_SIZE', 4))
 NUM_SAMPLES = int(
-    os.getenv('NUM_SAMPLES', 10)
+    os.getenv('NUM_SAMPLES', 5)
 )  # Number of models to train with ray for hyperparameter tuning
 OVERWRITE = bool(
     int(os.getenv('OVERWRITE', 0))
 )  # Whether or not to overwrite the existing models
+TILE_SIZE = int(os.getenv('TILE_SIZE', 100))  # Size of the tiles in pixels
 OVERLAP = int(os.getenv('OVERLAP', 0))
 
 TEMP_RAY_TUNE_DIR = MODELS_DIR / 'temp_ray_tune'

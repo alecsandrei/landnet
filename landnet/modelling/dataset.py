@@ -5,6 +5,7 @@ import typing as t
 from dataclasses import dataclass
 
 import numpy as np
+import torch
 from torch.utils.data import Dataset
 from torchvision.transforms.v2 import (
     Compose,
@@ -42,7 +43,7 @@ class ResizeTensor:
         )
 
 
-class RotateTensor:
+class RandomRotateTensor:
     def __init__(self, angles: c.Sequence[int]):
         self.angles = angles
 
@@ -76,7 +77,7 @@ def get_default_augment_transform():
         [
             RandomHorizontalFlip(p=0.5),
             RandomVerticalFlip(p=0.5),
-            RotateTensor([0, 90, 180, 270]),
+            RandomRotateTensor([0, 90, 180, 270]),
         ]
     )
 
@@ -85,9 +86,9 @@ def get_default_augment_transform():
 class LandslideImages(Dataset):
     grid: Grid
     mode: Mode
-    transform: c.Callable | None = get_default_transform()
-    augment_transform: c.Callable | None = None
-    transforms: c.Callable | None = None
+    transform: c.Callable[..., torch.Tensor] | None = get_default_transform()
+    augment_transform: c.Callable[..., list[torch.Tensor]] | None = None
+    transforms: c.Callable[..., torch.Tensor] | None = None
 
     def __post_init__(self) -> None:
         self.overlap = 0

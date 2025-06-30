@@ -50,15 +50,18 @@ class BinaryClassificationMetricCollection(torchmetrics.MetricCollection):
     def __init__(self, prefix: str | None = None):
         super().__init__(
             {
-                'f1_score': torchmetrics.classification.BinaryF1Score(),
                 'sensitivity': torchmetrics.classification.BinaryRecall(),
                 'specificity': torchmetrics.classification.BinarySpecificity(),
                 'accuracy': torchmetrics.classification.BinaryAccuracy(),
                 'negative_predictive_value': torchmetrics.classification.BinaryNegativePredictiveValue(),
                 'positive_predictive_value': torchmetrics.classification.BinaryPrecision(),
                 'roc_auc': torchmetrics.classification.BinaryAUROC(),
-                'f_beta': torchmetrics.classification.BinaryFBetaScore(
-                    beta=3.0  # we care A LOT more about recall
+                'f1_score': torchmetrics.classification.BinaryF1Score(),
+                'f2_score': torchmetrics.classification.BinaryFBetaScore(
+                    beta=2.0
+                ),
+                'f3_score': torchmetrics.classification.BinaryFBetaScore(
+                    beta=3.0
                 ),
             },
             prefix=prefix,

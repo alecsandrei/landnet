@@ -32,8 +32,8 @@ def get_raster_tiles(mode: Mode) -> RasterTiles:
 
 def main(tile_size: TileSize) -> dict[GeomorphometricalVariable, GridTypes]:
     saga = SAGA('saga_cmd')
-    # compute_grids(get_raster_tiles(Mode.TRAIN), Mode.TRAIN, saga)
-    # compute_grids(get_raster_tiles(Mode.TEST), Mode.TEST, saga)
+    compute_grids(get_raster_tiles(Mode.TRAIN), Mode.TRAIN, saga)
+    compute_grids(get_raster_tiles(Mode.TEST), Mode.TEST, saga)
     compute_grids(get_raster_tiles(Mode.VALIDATION), Mode.VALIDATION, saga)
     return get_grid_types(TileConfig(tile_size, overlap=OVERLAP))
 

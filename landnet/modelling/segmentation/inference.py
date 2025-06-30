@@ -35,7 +35,7 @@ class Infer:
         self, variable: GeomorphometricalVariable, mode: Mode
     ) -> Grid:
         grid = (GRIDS / mode.value / variable.value).with_suffix('.tif')
-        return Grid(grid, self.config['tile_config'])
+        return Grid(grid, self.config['tile_config'], mode=mode)
 
     def _get_landslide_images(
         self, variable: GeomorphometricalVariable, mode: Mode
@@ -43,7 +43,9 @@ class Infer:
         grid = (GRIDS / mode.value / variable.value).with_suffix('.tif')
         tile_config = self.config['tile_config']
         tile_config.overlap = 0  # In inferance mode, this should be 0
-        return LandslideImageSegmentation(Grid(grid, tile_config), mode=mode)
+        return LandslideImageSegmentation(
+            Grid(grid, tile_config, mode=mode), mode=mode
+        )
 
     def handle_checkpoint(self, checkpoint_path: os.PathLike | str) -> None:
         segmenter = LandslideImageSegmenter.load_from_checkpoint(

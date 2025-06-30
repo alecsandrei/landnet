@@ -107,7 +107,7 @@ class LandslideImageSegmenter(pl.LightningModule):
         output = self.forward(image)
         if isinstance(output, c.Mapping):
             # DeepLabV3 Model outputs a dictionary for some reason ?????
-            output: torch.Tensor = output['out']
+            output: torch.Tensor = output['out']  # type: ignore
         output = output.softmax(dim=1)
         loss = self.criterion(output, mask.float())
         output_mask = output.argmax(dim=1)
@@ -199,6 +199,7 @@ class LandslideImageSegmentationDataModule(pl.LightningDataModule):
         train_dataset: AnyLandslideSegmentationDataset | None = None,
         validation_dataset: AnyLandslideSegmentationDataset | None = None,
         test_dataset: AnyLandslideSegmentationDataset | None = None,
+        create_validation_dataset: bool = False,
     ):
         super().__init__()
         self.config = config
@@ -206,9 +207,10 @@ class LandslideImageSegmentationDataModule(pl.LightningDataModule):
         self.train_dataset = train_dataset
         self.validation_dataset = validation_dataset
         self.test_dataset = test_dataset
+        self.create_validation_dataset = create_validation_dataset
 
     def setup(self, stage=None):
-        if self.train_dataset is None or self.validation_dataset is None:
+        if self.train_dataset is None:
             logger.info(
                 'Setting up train, test and validation datasets based on %r'
                 % self.variables
@@ -222,19 +224,25 @@ class LandslideImageSegmentationDataModule(pl.LightningDataModule):
                 for variable in self.variables
             ]
 
-            dataset = ConcatLandslideImageSegmentation(
+            self.train_dataset = ConcatLandslideImageSegmentation(
                 landslide_images=[
                     LandslideImageSegmentation(grid, Mode.TRAIN)
                     for grid in train_grids
                 ],
                 augment_transform=None,
             )
-            self.train_dataset, self.validation_dataset = (
-                torch.utils.data.random_split(dataset, (0.7, 0.3))
-            )
             t.cast(
-                ConcatLandslideImageSegmentation, self.train_dataset.dataset
+                ConcatLandslideImageSegmentation, self.train_dataset
             ).augment_transform = get_default_augment_transform()
+            if (
+                self.validation_dataset is None
+                and self.create_validation_dataset
+            ):
+                self.train_dataset, self.validation_dataset = (
+                    torch.utils.data.random_split(
+                        self.train_dataset, (0.7, 0.3)
+                    )
+                )
         if self.test_dataset is None:
             test_grids = [
                 get_grid_for_variable(
@@ -256,8 +264,8 @@ class LandslideImageSegmentationDataModule(pl.LightningDataModule):
         assert self.train_dataset is not None
         return get_segmentation_dataloader(
             self.train_dataset,
-            # size=len(self.train_dataset),
-            size=10000,
+            size=len(self.train_dataset),
+            # size=1000,
             batch_size=self.config['batch_size'],
             num_workers=4,
             prefetch_factor=4,  # Load 4 batches ahead
@@ -266,6 +274,11 @@ class LandslideImageSegmentationDataModule(pl.LightningDataModule):
         )
 
     def val_dataloader(self):
+        if self.validation_dataset is None:
+            logger.warning(
+                'Validation dataset is not set. Using the training dataset for validation.'
+            )
+            self.validation_dataset = self.train_dataset
         assert self.validation_dataset is not None
         data_loader = DataLoader(
             self.validation_dataset,

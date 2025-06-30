@@ -7,7 +7,7 @@ from pathlib import Path
 from ray import train, tune
 from ray.train import Checkpoint, CheckpointConfig
 from ray.train.torch import TorchTrainer
-from ray.tune import ExperimentAnalysis, Result
+from ray.tune import ExperimentAnalysis, Result, ResumeConfig
 from ray.tune.experiment import Trial
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.search.hyperopt import HyperOptSearch
@@ -18,6 +18,7 @@ from landnet.config import (
     NUM_SAMPLES,
     OVERLAP,
     TEMP_RAY_TUNE_DIR,
+    TILE_SIZE,
 )
 from landnet.enums import GeomorphometricalVariable
 from landnet.features.tiles import TileConfig, TileSize
@@ -34,9 +35,11 @@ class MetricSorter(t.NamedTuple):
 
 def get_tune_space():
     return {
-        'learning_rate': tune.loguniform(1e-6, 1e-3),
+        'learning_rate': tune.loguniform(1e-6, 1e-4),
         'batch_size': tune.choice([2, 4, 8]),
-        'tile_config': tune.choice([TileConfig(TileSize(100, 100), OVERLAP)]),
+        'tile_config': tune.choice(
+            [TileConfig(TileSize(TILE_SIZE, TILE_SIZE), OVERLAP)]
+        ),
     }
 
 
@@ -99,8 +102,7 @@ def get_scheduler(sorter: MetricSorter):
         metric=sorter.metric,
         mode=sorter.mode,
         max_t=EPOCHS,
-        grace_period=EPOCHS,
-        # grace_period=EPOCHS if EPOCHS < 3 else 3,
+        grace_period=EPOCHS // 2,
         reduction_factor=2,
     )
 
@@ -129,7 +131,7 @@ def get_tuner(
         return tune.TuneConfig(
             scheduler=get_scheduler(sorter),
             num_samples=NUM_SAMPLES,
-            search_alg=HyperOptSearch(metric='val_loss', mode='min'),
+            search_alg=HyperOptSearch(metric=sorter.metric, mode=sorter.mode),
         )
 
     def get_trainable():
@@ -145,16 +147,24 @@ def get_tuner(
         }
 
     if tune.Tuner.can_restore(trial_dir):
-        return tune.Tuner.restore(
+        # ResumeConfig is kind of buggy, should be used with caution
+        # It also has wrong type hints, so we need to ignore them
+        resume_config = ResumeConfig(
+            finished=ResumeConfig.ResumeType.SKIP,  # type: ignore
+            unfinished=ResumeConfig.ResumeType.RESTART,  # type: ignore
+            errored=ResumeConfig.ResumeType.RESTART,  # type: ignore
+        )
+        restored = tune.Tuner.restore(
             trial_dir.as_posix(),
             trainable=get_trainable(),  # type: ignore
             param_space=get_param_space(),
-            resume_errored=True,
-            resume_unfinished=True,
-            restart_errored=True,
+            _resume_config=resume_config,
         )
-    return tune.Tuner(
-        get_trainable(),  # type: ignore
-        param_space=get_param_space(),
-        tune_config=get_tune_config(),
-    )
+        return restored
+    else:
+        restored = tune.Tuner(
+            get_trainable(),
+            param_space=get_param_space(),
+            tune_config=get_tune_config(),
+        )
+    return restored

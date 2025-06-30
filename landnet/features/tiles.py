@@ -324,9 +324,25 @@ class RasterTiles:
             merge_kwargs = {}
         merge_kwargs.setdefault('nodata', NODATA)
         merge_kwargs.setdefault('resampling', Resampling.bilinear)
+        # merge_kwargs.setdefault('method', RasterTiles.custom_merge_mean)
         merge_kwargs.setdefault('target_aligned_pixels', True)
         rasterio.merge.merge(paths.values, dst_path=out_file, **merge_kwargs)
         return out_file
+
+    @staticmethod
+    def custom_merge_mean(
+        merged_data, new_data, merged_mask, new_mask, **kwargs
+    ):
+        """Returns the maximum value pixel."""
+        mask = np.empty_like(merged_mask, dtype='bool')
+        np.logical_or(merged_mask, new_mask, out=mask)
+        np.logical_not(mask, out=mask)
+        merged_data[mask] = np.mean(
+            np.concatenate([merged_data[mask], new_data[mask]], axis=0)
+        )
+        np.logical_not(new_mask, out=mask)
+        np.logical_and(merged_mask, mask, out=mask)
+        np.copyto(merged_data, new_data, where=mask, casting='unsafe')
 
 
 # @dataclass

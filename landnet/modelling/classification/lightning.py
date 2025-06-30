@@ -22,7 +22,7 @@ from landnet.modelling.models import read_legacy_checkpoint
 if t.TYPE_CHECKING:
     from landnet.typing import (
         AnyLandslideClassificationDataset,
-        LandslideClassifiicationDataset,
+        LandslideClassificationDataset,
         TuneSpace,
     )
 
@@ -35,6 +35,7 @@ class LandslideImageClassifier(pl.LightningModule):
         self.config = config
         self.model = model
         self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([2]))
+        # self.criterion = nn.BCEWithLogitsLoss()
         self.train_metrics = BinaryClassificationMetricCollection(
             prefix='train_'
         )
@@ -90,6 +91,7 @@ class LandslideImageClassifier(pl.LightningModule):
         logits = self.forward(x)
         self.train_metrics.update(logits, y)
         loss = self.criterion(logits, y.float())
+        self.log('train_loss', loss, sync_dist=True)
         return loss
 
     def on_train_epoch_end(self):
@@ -131,7 +133,7 @@ class LandslideImageDataModule(pl.LightningDataModule):
         variables: c.Sequence[GeomorphometricalVariable],
         train_dataset: AnyLandslideClassificationDataset | None = None,
         validation_dataset: AnyLandslideClassificationDataset | None = None,
-        test_dataset: LandslideClassifiicationDataset | None = None,
+        test_dataset: LandslideClassificationDataset | None = None,
     ):
         super().__init__()
         self.config = config
@@ -144,6 +146,12 @@ class LandslideImageDataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         assert self.train_dataset is not None
+        # size = len(self.train_dataset) // 2
+        size = 500
+        logger.info(
+            'Length of train dataset: %d, using randomly with replacement only %d samples for training.'
+            % (len(self.train_dataset), size)
+        )
         return create_classification_dataloader(
             self.train_dataset,
             batch_size=self.config['batch_size'],
@@ -152,7 +160,7 @@ class LandslideImageDataModule(pl.LightningDataModule):
             persistent_workers=True,  # Keeps workers alive
             class_balance=DEFAULT_CLASS_BALANCE,
             pin_memory=True,
-            # size=1000,
+            size=size,
         )
 
     def val_dataloader(self):

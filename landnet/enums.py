@@ -16,13 +16,13 @@ class Mode(Enum):
 
 
 class GeomorphometricalVariable(Enum):
-    INDEX_OF_CONVERGENCE = 'ioc'
+    SLOPE = 'slope'
     HILLSHADE = 'shade'
+    INDEX_OF_CONVERGENCE = 'ioc'
     TERRAIN_SURFACE_CONVEXITY = 'conv'
     POSITIVE_TOPOGRAPHIC_OPENNESS = 'poso'
     NEGATIVE_TOPOGRAPHIC_OPENNESS = 'nego'
     ASPECT = 'aspect'
-    SLOPE = 'slope'
     NORTHNESS = 'northness'
     EASTNESS = 'eastness'
     PROFILE_CURVATURE = 'cprof'

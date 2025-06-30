@@ -53,8 +53,15 @@ class AlexNetBuilder(ModelBuilder):
             else None,
         )
 
-    def _adapt_output_features(self, model: AlexNet) -> AlexNet:
-        model.classifier[-1] = nn.Linear(4096, self.out_features, bias=True)
+    def _adapt_output_features(self, model: AlexNet | nn.Sequential) -> AlexNet:
+        layer = nn.Linear(4096, self.out_features, bias=True)
+        if isinstance(model, nn.Sequential):
+            assert isinstance(model[1], AlexNet)
+            alexnet = model[1]
+            assert isinstance(alexnet, AlexNet)
+            alexnet.classifier[-1] = layer
+        if isinstance(model, AlexNet):
+            model.classifier[-1] = layer
         return model
 
     def _finalize_model(self, model: AlexNet) -> AlexNet:
@@ -72,7 +79,14 @@ class ResNet50Builder(ModelBuilder):
         )
 
     def _adapt_output_features(self, model: ResNet) -> ResNet:
-        model.fc = nn.Linear(2048, self.out_features, bias=True)
+        layer = nn.Linear(2048, self.out_features, bias=True)
+        if isinstance(model, nn.Sequential):
+            assert isinstance(model[1], ResNet)
+            resnet50 = model[1]
+            assert isinstance(resnet50, ResNet)
+            resnet50.fc = layer
+        if isinstance(model, ResNet):
+            model.fc = layer
         return model
 
 

@@ -18,6 +18,8 @@ from landnet.modelling.dataset import (
 )
 
 logger = create_logger(__name__)
+g = torch.Generator()
+g.manual_seed(0)
 
 
 class PCAConcatLandslideImageClassification(Dataset):
@@ -56,13 +58,14 @@ class ConcatLandslideImageClassification(Dataset):
         return len(self.landslide_images[0])
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
-        if any(
-            landslide_images.augment_transform is not None
-            for landslide_images in self.landslide_images
-        ):
-            logger.error(
-                'Found "augment_transform" for landslide_images. This might result in unexpected behaviour'
-            )
+        for landslide_images in self.landslide_images:
+            if landslide_images.augment_transform is not None:
+                logger.warning(
+                    'Found "augment_transform" for landslide_images. This might result in unexpected behaviour. '
+                    'Turning off augment_transform for landslide_images of grid %r'
+                    % landslide_images.grid
+                )
+                landslide_images.augment_transform = None
         image_batch = [images[index] for images in self.landslide_images]
         images = [images[0] for images in image_batch]
         class_ = image_batch[0][1]
@@ -76,6 +79,7 @@ class ConcatLandslideImageClassification(Dataset):
 class LandslideImageClassification(LandslideImages):
     landslide_density_threshold: float = LANDSLIDE_DENSITY_THRESHOLD
     data_indices: dict[int, list[int]] = field(init=False)
+    sampled_indices: list[int] = field(default_factory=list, init=False)
 
     def __post_init__(self):
         self.data_indices = self._get_data_indices()
@@ -85,7 +89,7 @@ class LandslideImageClassification(LandslideImages):
         class_to_indices: dict[int, list[int]] = {}
         indices_range = range(self.grid.get_tiles_length())
         gdf = self.grid.get_landslide_percentage_intersection(
-            list(indices_range), self.mode
+            list(indices_range)
         )
         for row in gdf.itertuples():
             class_ = (
@@ -127,32 +131,46 @@ class LandslideImageClassification(LandslideImages):
 
     def _get_item_train(self, index: int) -> tuple[torch.Tensor, int]:
         tile, label = self._get_tile(index)
+        assert isinstance(tile, torch.Tensor)
         if self.augment_transform is not None:
-            tile = self.augment_transform(tile)
+            is_multi_channel = tile.shape[0] > 1
+            tiles = self.augment_transform(tile)
+            if is_multi_channel:
+                tile = torch.cat(tiles, dim=0)
+            else:
+                tile = tiles[0]
         return (tile, label)
 
     def _get_item_test(self, index: int) -> tuple[torch.Tensor, int]:
         return self._get_tile(index)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
+        self.sampled_indices.append(index)
         if self.mode is Mode.TRAIN:
             return self._get_item_train(index)
-        elif self.mode in (Mode.TEST, Mode.INFERENCE):
+        elif self.mode in (Mode.TEST, Mode.INFERENCE, Mode.VALIDATION):
             return self._get_item_test(index)
-        raise ValueError('Mode should only be "train", "inference" or "test"')
+        raise ValueError('Mode %r is not supported' % self.mode)
 
 
 def get_classification_dataloader(
-    dataset: Dataset, weights: np.ndarray, size: int | None = None, **kwargs
+    dataset: Dataset,
+    weights: np.ndarray | None = None,
+    size: int | None = None,
+    **kwargs,
 ):
-    samples_weight = torch.tensor(weights, dtype=torch.double)
-    sampler = WeightedRandomSampler(
-        samples_weight,  # type: ignore
-        num_samples=size or len(samples_weight),
-        replacement=True,
-    )
-    data_loader = DataLoader(dataset, **kwargs, sampler=sampler)
-    return data_loader
+    sampler = None
+    if weights is not None:
+        # replacement = True if size > len(dataset) else False
+        # TODO: Set this to True and not adaptive as above
+        replacement = True
+        samples_weight = torch.tensor(weights, dtype=torch.double)
+        sampler = WeightedRandomSampler(
+            samples_weight,  # type: ignore
+            num_samples=size or samples_weight.numel(),
+            replacement=replacement,
+        )
+    return DataLoader(dataset, **kwargs, generator=g, sampler=sampler)
 
 
 def create_classification_dataloader_from_subset(
@@ -163,27 +181,29 @@ def create_classification_dataloader_from_subset(
     size: int | None = None,
     **kwargs,
 ):
-    # Count occurrences of each class
-    class_sample_count = {
-        cls: len([index for index in indices if index in dataset.indices])
-        for cls, indices in dataset.dataset.data_indices.items()  # type: ignore
-    }
+    samples_weight = None
+    if size is not None:
+        # Count occurrences of each class
+        class_sample_count = {
+            cls: len([index for index in indices if index in dataset.indices])
+            for cls, indices in dataset.dataset.data_indices.items()  # type: ignore
+        }
 
-    # Compute inverse frequency weights
-    weight = {
-        cls: 1.0 / count if count > 0 else 0
-        for cls, count in class_sample_count.items()
-    }
+        # Compute inverse frequency weights
+        weight = {
+            cls: 1.0 / count if count > 0 else 0
+            for cls, count in class_sample_count.items()
+        }
 
-    # Assign sample weights based on their class
-    samples_weight = np.zeros(len(dataset.dataset))  # type: ignore
+        # Assign sample weights based on their class
+        samples_weight = np.zeros(len(dataset.dataset))  # type: ignore
 
-    for cls, indices in dataset.dataset.data_indices.items():  # type: ignore
-        indices = [index for index in indices if index in dataset.indices]
-        class_weight = weight[cls]
-        if class_balance is not None:
-            class_weight *= class_balance[LandslideClass(cls)]
-        samples_weight[indices] = [class_weight] * len(indices)
+        for cls, indices in dataset.dataset.data_indices.items():  # type: ignore
+            indices = [index for index in indices if index in dataset.indices]
+            class_weight = weight[cls]
+            if class_balance is not None:
+                class_weight *= class_balance[LandslideClass(cls)]
+            samples_weight[indices] = [class_weight] * len(indices)
 
     return get_classification_dataloader(
         dataset.dataset, weights=samples_weight, size=size, **kwargs

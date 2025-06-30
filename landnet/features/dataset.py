@@ -58,7 +58,7 @@ def get_empty_geojson() -> GeoJSON:
 
 @cache
 def get_dem_tiles() -> gpd.GeoDataFrame:
-    dem_tiles = gpd.read_file(RAW_DATA_DIR / 'dem_tiles.geojson')
+    dem_tiles = gpd.read_file(RAW_DATA_DIR / 'dem_tiles.fgb')
     path_split = dem_tiles['path'].str.split('/')
     dem_tiles['id1'] = path_split.str.get(0)
     dem_tiles['id2'] = path_split.str.get(1)
@@ -80,10 +80,21 @@ def geojson_to_gdf(geojson: GeoJSON) -> gpd.GeoDataFrame:
 
 @cache
 def get_landslide_shapes(mode: Mode) -> gpd.GeoSeries:
-    return gpd.read_file(
-        RAW_DATA_DIR / 'shapes.gpkg',
-        layer='landslides_train' if mode is Mode.TRAIN else 'landslides_test',
-    ).geometry
+    landslides = gpd.read_file(RAW_DATA_DIR / 'shapes.gpkg', layer='landslides')
+    return landslides[landslides['mode'] == mode.value]
+
+
+def get_limits() -> gpd.GeoDataFrame:
+    return gpd.read_file(RAW_DATA_DIR / 'shapes.gpkg', layer='limits')
+
+
+@cache
+def get_limit(mode: Mode) -> Polygon:
+    limits = get_limits()
+    limit = limits[limits['mode'] == mode.value]
+    if limit.empty:
+        raise ValueError(f'No limit found for mode {mode.value}')
+    return t.cast(Polygon, limit.geometry.iloc[0])
 
 
 def get_percentage_intersection(
@@ -130,7 +141,7 @@ def logits_to_dem_tiles(
     logits: np.ndarray, y: np.ndarray, mode: Mode, grid: Grid
 ) -> gpd.GeoDataFrame:
     landslide_density = grid.get_landslide_percentage_intersection(
-        list(range(grid.get_tiles_length())), mode=mode
+        list(range(grid.get_tiles_length()))
     )
     assert len(y) == landslide_density.shape[0]
     assert len(logits) == landslide_density.shape[0]

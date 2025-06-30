@@ -20,6 +20,7 @@ from torchvision.transforms import CenterCrop, Compose, Lambda, Normalize
 from landnet.config import (
     ARCHITECTURE,
     GRIDS,
+    LANDSLIDE_DENSITY_THRESHOLD,
 )
 from landnet.enums import GeomorphometricalVariable, LandslideClass, Mode
 from landnet.features.dataset import logits_to_dem_tiles
@@ -55,12 +56,18 @@ class InferTrainTest:
 
     @staticmethod
     def _get_landslide_images(
-        variable: GeomorphometricalVariable, tune_space: TuneSpace, mode: Mode
+        variable: GeomorphometricalVariable,
+        tune_space: TuneSpace,
+        mode: Mode,
+        landslide_density_threshold: float = LANDSLIDE_DENSITY_THRESHOLD,
     ) -> LandslideImageClassification:
         grid = (GRIDS / mode.value / variable.value).with_suffix('.tif')
-        tile_config = tune_space['tile_config']
-        tile_config.overlap = 0  # In inferance mode, this should be 0
-        return LandslideImageClassification(Grid(grid, tile_config), mode=mode)
+        tile_config = TileConfig(tune_space['tile_config'].size, 0)
+        return LandslideImageClassification(
+            Grid(grid, tile_config, mode=mode),
+            mode=mode,
+            landslide_density_threshold=landslide_density_threshold,
+        )
 
     def _get_predictions(
         self, classifier: LandslideImageClassifier, dataloader: DataLoader
@@ -81,6 +88,9 @@ class InferTrainTest:
         metrics = BinaryClassificationMetricCollection()
         metrics.update(logits, targets)
         computed = metrics.compute()
+        for k, v in computed.items():
+            if isinstance(v, torch.Tensor):
+                computed[k] = v.item()
         logger.info('For mode %r, computed metrics %s' % (mode, computed))
         pd.DataFrame.from_dict(computed, orient='index').to_csv(
             out_dir / 'metrics.csv'
@@ -159,7 +169,7 @@ class InferTrainTest:
     ) -> None:
         torch_clear()
         tune_space_copy = tune_space.copy()
-        tune_space_copy['batch_size'] = 1
+        # tune_space_copy['batch_size'] = 1
         classifier = LandslideImageClassifier.load_from_checkpoint(
             checkpoint_path,
             model=get_architecture(ARCHITECTURE)(
@@ -168,7 +178,11 @@ class InferTrainTest:
             config=tune_space_copy,
             strict=False,
         )
-        for mode in (Mode.TRAIN, Mode.TEST):
+        logger.debug(
+            'Loaded classifier with model architecture %s' % ARCHITECTURE
+        )
+        for mode in (Mode.TRAIN, Mode.TEST, Mode.VALIDATION):
+            # for mode in (Mode.VALIDATION,):
             self._handle_mode(classifier, mode, tune_space)
 
 
@@ -185,6 +199,7 @@ class InferenceFolder:
             variable: Grid(
                 (self.parent / variable.value).with_suffix('.tif'),
                 self.tile_config,
+                mode=Mode.INFERENCE,
             )
             for variable in self.variables
         }

@@ -61,6 +61,7 @@ class ModelBuilder(ABC, t.Generic[T]):
         """Adapt the model for the specified number of input channels."""
         if in_channels == 3:
             return model
+        logger.debug('Adapting model input channels from %d to 3', in_channels)
         return nn.Sequential(self._create_conv1x1(in_channels, 3), model)
 
     @abstractmethod

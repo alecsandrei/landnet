@@ -15,7 +15,6 @@ from ray.train.lightning import (
 )
 from ray.tune import ResultGrid
 from torch import nn
-from torch.utils.data import random_split
 
 from landnet.config import (
     ARCHITECTURE,
@@ -129,7 +128,7 @@ def train_func(
     **kwargs,
 ):
     train_dataset, validation_dataset, test_dataset = get_datsets_from_cacher(
-        landslide_images_cacher, config, variables
+        landslide_images_cacher, config, variables, return_test=False
     )
     dm = LandslideImageDataModule(
         config,
@@ -196,7 +195,12 @@ class LandslideImageClassificationCacher:
         if mode not in map_:
             logger.info('%r' % mode)
             grid = get_grid_for_variable(variable, tile_config, mode)
-            map_[mode] = LandslideImageClassification(grid, mode)
+            augment_transform = None
+            if mode is Mode.TRAIN:
+                augment_transform = get_default_augment_transform()
+            map_[mode] = LandslideImageClassification(
+                grid, mode, augment_transform=augment_transform
+            )
         return map_[mode]
 
     def set(
@@ -220,6 +224,7 @@ def get_datsets_from_cacher(
     cacher: ray.ObjectRef[LandslideImageClassificationCacher],  # type: ignore
     config: TuneSpace,
     variables: c.Sequence[GeomorphometricalVariable],
+    return_test: bool = True,
 ) -> ClassificationTrainTestValidation:
     train = ray.get(
         [
@@ -229,21 +234,33 @@ def get_datsets_from_cacher(
             for variable in variables
         ]
     )
-    test = ray.get(
+    test_dataset = None
+    if return_test:
+        test = ray.get(
+            [
+                cacher.setdefault.remote(  # type: ignore
+                    variable, config['tile_config'], Mode.TEST
+                )
+                for variable in variables
+            ]
+        )
+    validation = ray.get(
         [
             cacher.setdefault.remote(  # type: ignore
-                variable, config['tile_config'], Mode.TEST
+                variable, config['tile_config'], Mode.VALIDATION
             )
             for variable in variables
         ]
     )
     if len(variables) > 1:
-        dataset = ConcatLandslideImageClassification(
+        train_dataset = ConcatLandslideImageClassification(
             train, augment_transform=get_default_augment_transform()
         )
-        train_dataset, validation_dataset = random_split(dataset, (0.7, 0.3))
-        test_dataset = ConcatLandslideImageClassification(test)
+        validation_dataset = ConcatLandslideImageClassification(validation)
+        if return_test:
+            test_dataset = ConcatLandslideImageClassification(test)
         return (train_dataset, validation_dataset, test_dataset)
     else:
-        train_dataset, validation_dataset = random_split(train[0], (0.7, 0.3))
-        return (train_dataset, validation_dataset, test[0])
+        if return_test:
+            test_dataset = test[0]
+        return (train[0], validation[0], test_dataset)

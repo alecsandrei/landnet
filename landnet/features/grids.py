@@ -9,7 +9,6 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
-import pandas as pd
 import rasterio.crs
 import rasterio.mask
 import rasterio.merge
@@ -26,6 +25,7 @@ from landnet.config import (
     GRIDS,
     INFERENCE_TILES,
     INTERIM_DATA_DIR,
+    SAGAGIS_NODATA,
     TEST_TILES,
     TRAIN_TILES,
     VALIDATION_TILES,
@@ -33,6 +33,7 @@ from landnet.config import (
 from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.dataset import (
     get_landslide_shapes,
+    get_limit,
     get_percentage_intersection,
 )
 from landnet.features.tiles import RasterTiles, TileConfig, TileHandler
@@ -118,7 +119,11 @@ class TerrainAnalysis:
         return None
 
     def should_compute(self, variable: GeomorphometricalVariable) -> bool:
-        return self.variables is None or variable in self.variables
+        if self.variables is None:
+            return True
+        elif variable in self.variables:
+            return True
+        return False
 
     def index_of_convergence(self) -> ToolOutput | None:
         """Requires 1 or 2 units of buffer depending on the neighbours parameter."""
@@ -510,13 +515,11 @@ class TerrainAnalysis:
 class Grid:
     path: Path
     tile_config: TileConfig
+    mode: Mode
     tile_handler: TileHandler = field(init=False)
     landslides: gpd.GeoSeries | None = None
     cached_tile: dict[int, tuple[Metadata, np.ndarray, Polygon]] = field(
         init=False, default_factory=dict
-    )
-    cached_masked_tiles: dict[int, tuple[Metadata, np.ndarray, Polygon]] = (
-        field(init=False, default_factory=dict)
     )
 
     def __post_init__(self):
@@ -525,7 +528,7 @@ class Grid:
 
     def get_tiles_length(self) -> int:
         assert self.tile_handler is not None
-        with rasterio.open(self.path) as src:
+        with rasterio.open(self.path, nodata=SAGAGIS_NODATA) as src:
             return self.tile_handler.get_tiles_length(src)
 
     def get_bounds(self, indices: c.Sequence[int]) -> gpd.GeoSeries:
@@ -535,10 +538,10 @@ class Grid:
             bounds[i] = self.get_tile_bounds(i)[2]
         return bounds
 
-    def get_tile_landslides(self, index: int, mode: Mode) -> gpd.GeoSeries:
+    def get_tile_landslides(self, index: int) -> gpd.GeoSeries:
         _, _, bounds = self.get_tile_bounds(index)
         landslides = (
-            get_landslide_shapes(mode)
+            get_landslide_shapes(self.mode)
             if self.landslides is None
             else self.landslides
         )
@@ -546,17 +549,18 @@ class Grid:
         return intersection[~intersection.is_empty]
 
     def get_landslide_percentage_intersection(
-        self, indices: c.Sequence[int], mode: Mode
+        self, indices: c.Sequence[int]
     ) -> gpd.GeoDataFrame:
         assert self.tile_handler is not None
         bounds = self.get_bounds(indices)
-        landslides = pd.concat(
-            [self.get_tile_landslides(i, mode) for i in indices],
-            ignore_index=True,
-        )
         bounds = t.cast(gpd.GeoDataFrame, bounds.to_frame('geometry'))
-        bounds['landslide_density'] = bounds['geometry'].apply(
-            lambda geom: get_percentage_intersection(geom, other=landslides)  # type: ignore
+        bounds['index'] = indices
+        bounds['landslide_density'] = bounds.apply(
+            lambda row: get_percentage_intersection(
+                row['geometry'],
+                other=self.get_tile_landslides(row['index']),
+            ),  # type: ignore
+            axis=1,
         )
         return bounds
 
@@ -579,13 +583,14 @@ class Grid:
 
     def get_tile(self, index: int) -> tuple[Metadata, np.ndarray, Polygon]:
         if (vals := self.cached_tile.get(index, None)) is None:
-            with rasterio.open(self.path) as src:
+            with rasterio.open(self.path, nodata=SAGAGIS_NODATA) as src:
                 metadata, window, bounds = self.get_tile_bounds(index)
                 self.cached_tile[index] = (
                     metadata,
                     src.read(window=window),
                     bounds,
                 )
+
                 return self.cached_tile[index]
         return vals
 
@@ -614,7 +619,7 @@ class Grid:
     def get_tiles(self) -> c.Generator[tuple[Metadata, np.ndarray]]:
         assert self.tile_handler is not None
 
-        with rasterio.open(self.path) as src:
+        with rasterio.open(self.path, nodata=SAGAGIS_NODATA) as src:
             metadata = src.meta.copy()
             for i in range(self.get_tiles_length()):
                 window, transform = self.tile_handler.get_tile(src, i)
@@ -628,36 +633,26 @@ class Grid:
                     src.read(window=window),
                 )
 
-    def get_tile_mask(
-        self, index: int, mode: Mode
-    ) -> tuple[Metadata, np.ndarray, Polygon]:
-        if (vals := self.cached_masked_tiles.get(index, None)) is None:
-            rasterio.open
-            with rasterio.open(self.path) as src:
-                metadata, window, bounds = self.get_tile_bounds(index)
-                landslides = self.get_tile_landslides(index, mode)
-                array = src.read(window=window)
-                if not landslides.empty:
-                    memfile = MemoryFile()
-                    dataset = memfile.open(**metadata)
-                    dataset.write(array)
-                    landslide_mask_raw, _, _ = raster_geometry_mask(
-                        dataset, landslides, all_touched=True, invert=True
-                    )
-                    landslide_mask = np.expand_dims(landslide_mask_raw, 0)
-                else:
-                    landslide_mask = np.zeros(array.shape)
-                mask = np.concatenate(
-                    [np.logical_not(landslide_mask), landslide_mask]
-                ).astype('uint8')
-                assert (mask.sum(axis=0) == 1).all()
-                self.cached_masked_tiles[index] = (
-                    metadata,
-                    mask,
-                    bounds,
+    def get_tile_mask(self, index: int) -> tuple[Metadata, np.ndarray, Polygon]:
+        with rasterio.open(self.path) as src:
+            metadata, window, bounds = self.get_tile_bounds(index)
+            landslides = self.get_tile_landslides(index)
+            array = src.read(window=window)
+            if not landslides.empty:
+                memfile = MemoryFile()
+                dataset = memfile.open(**metadata)
+                dataset.write(array)
+                landslide_mask_raw, _, _ = raster_geometry_mask(
+                    dataset, landslides, all_touched=True, invert=True
                 )
-                return self.cached_masked_tiles[index]
-        return vals
+                landslide_mask = np.expand_dims(landslide_mask_raw, 0)
+            else:
+                landslide_mask = np.zeros(array.shape)
+            mask = np.concatenate(
+                [np.logical_not(landslide_mask), landslide_mask]
+            ).astype('uint8')
+            assert (mask.sum(axis=0) == 1).all()
+        return (metadata, mask, bounds)
 
     def mask(
         self,
@@ -726,6 +721,24 @@ def compute_grids(
     resampled = tiles.resample(out_dir, mode)
     logger.debug('Merging %r for %s' % (resampled, mode))
     merged = resampled.merge(GRIDS / mode.value / 'dem.tif')
+    with rasterio.open(merged) as src:
+        profile = src.profile.copy()
+        out_image, out_transform = rasterio.mask.mask(
+            src, shapes=[get_limit(mode)], crop=True, filled=False
+        )
+        data_window = rasterio.windows.get_data_window(out_image)
+        data_transform = rasterio.windows.transform(data_window, out_transform)
+        profile.update(
+            transform=data_transform,
+            height=data_window.height,
+            width=data_window.width,
+        )
+
+        data = src.read(window=data_window)
+
+    with rasterio.open(merged, 'w', **profile) as dst:
+        dst.write(data)
+
     compute_grids_for_dem(merged, saga, mode, variables)
 
 
@@ -735,6 +748,7 @@ def get_grid_for_variable(
     return Grid(
         (GRIDS / mode.value / variable.value).with_suffix('.tif'),
         tile_config,
+        mode=mode,
     )
 
 
