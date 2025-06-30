@@ -7,15 +7,15 @@ import numpy as np
 from torch import nn
 
 from landnet.config import ARCHITECTURE, FIGURES_DIR, GRIDS, MODELS_DIR
-from landnet.dataset import get_dem_tiles
 from landnet.enums import GeomorphometricalVariable, Mode
+from landnet.features.dataset import get_dem_tiles
 from landnet.features.tiles import TileConfig, TileSize
-from landnet.modelling.inference import (
+from landnet.modelling.classification.inference import (
     InferenceFolder,
     perform_inference_on_tiles,
 )
-from landnet.modelling.lightning import LandslideImageClassifier
-from landnet.modelling.models import get_architecture
+from landnet.modelling.classification.lightning import LandslideImageClassifier
+from landnet.modelling.classification.models import get_architecture
 
 
 def get_all_conv2d_layers(model):

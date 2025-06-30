@@ -38,7 +38,7 @@ from landnet.features.tiles import (
     get_image_folders_for_variable,
 )
 from landnet.logger import create_logger
-from landnet.modelling.train import (
+from landnet.modelling.classification.train import (
     Metrics,
     device,
     evaluate_model,
@@ -48,7 +48,7 @@ from landnet.modelling.train import (
 if t.TYPE_CHECKING:
     from torchvision.models import AlexNet
 
-    from landnet.modelling.train import Result
+    from landnet.modelling.classification.train import Result
 
 torch.cuda.empty_cache()
 

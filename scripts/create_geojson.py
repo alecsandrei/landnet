@@ -15,7 +15,7 @@ from landnet.config import (
 from landnet.enums import Mode
 
 if t.TYPE_CHECKING:
-    from landnet.dataset import GeoJSON
+    from landnet.features.dataset import GeoJSON
 
 if __name__ == '__main__':
     geojson: GeoJSON = {

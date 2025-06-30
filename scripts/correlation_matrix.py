@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from landnet.enums import GeomorphometricalVariable
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -11,7 +10,7 @@ import rasterio
 from torchvision.datasets import ImageFolder
 
 from landnet.config import FIGURES_DIR, GRIDS
-from landnet.enums import Mode
+from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.tiles import TileConfig, TileHandler, TileSize
 from landnet.plots import get_correlation_matrix_plot
 
@@ -32,12 +31,12 @@ def to_image_folder(path: Path):
 
 
 if __name__ == '__main__':
-    variables_subset =  [
+    variables_subset = [
         GeomorphometricalVariable.SLOPE,
         GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
         GeomorphometricalVariable.DOWNSLOPE_CURVATURE,
         GeomorphometricalVariable.LOCAL_UPSLOPE_CURVATURE,
-        GeomorphometricalVariable.GENERAL_CURVATURE
+        GeomorphometricalVariable.GENERAL_CURVATURE,
     ]
     config = TileConfig(TileSize(100, 100))
     grids = list((GRIDS / Mode.TRAIN.value).glob('*.tif'))

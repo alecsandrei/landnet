@@ -1,26 +1,55 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from ray.train import Result
 
-from landnet._typing import TuneSpace
 from landnet.config import MODELS_DIR, TRIAL_NAME
 from landnet.enums import GeomorphometricalVariable
 from landnet.features.tiles import TileConfig, TileSize
-from landnet.modelling.inference import InferTrainTest
+from landnet.modelling.classification.inference import InferTrainTest
 from landnet.modelling.tune import MetricSorter
+from landnet.typing import TuneSpace
 
 if __name__ == '__main__':
     infer = InferTrainTest(
         variables=[
-            # GeomorphometricalVariable.DOWNSLOPE_CURVATURE,
-            # GeomorphometricalVariable.GENERAL_CURVATURE,
-            # GeomorphometricalVariable.LOCAL_UPSLOPE_CURVATURE,
-            # GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
-            GeomorphometricalVariable.SLOPE,
+            # GeomorphometricalVariable('area'),
+            # GeomorphometricalVariable('cbl'),
+            # GeomorphometricalVariable('ccros'),
+            # GeomorphometricalVariable('cdl'),
+            # GeomorphometricalVariable('cdo'),
+            # GeomorphometricalVariable('cgene'),
+            GeomorphometricalVariable('clong'),
+            # GeomorphometricalVariable('clo'),
+            # GeomorphometricalVariable('clu'),
+            # GeomorphometricalVariable('cmaxi'),
+            GeomorphometricalVariable('cmini'),
+            GeomorphometricalVariable('conv'),
+            GeomorphometricalVariable('cplan'),
+            # GeomorphometricalVariable('nego'),
+            # GeomorphometricalVariable('northness'),
+            # GeomorphometricalVariable('poso'),
+            # GeomorphometricalVariable('shade'),
+            # GeomorphometricalVariable('slope'),
+            GeomorphometricalVariable('cprof'),
+            # GeomorphometricalVariable('croto'),
+            # GeomorphometricalVariable('ctang'),
+            # GeomorphometricalVariable('cup'),
+            GeomorphometricalVariable('dem'),
+            # GeomorphometricalVariable('eastness'),
+            GeomorphometricalVariable('tpi'),
+            GeomorphometricalVariable('tri'),
+            GeomorphometricalVariable('twi'),
+            # GeomorphometricalVariable('wind'),
+            # GeomorphometricalVariable('vld'),
         ],
         sorter=MetricSorter('val_f_beta', 'max'),
+        out_dir=None,
     )
-    for trial in (MODELS_DIR / TRIAL_NAME / '2025-04-12_16-13-19').iterdir():
+    for trial in (
+        MODELS_DIR / TRIAL_NAME / TRIAL_NAME / '2025-04-24_08-13-50'
+    ).iterdir():
         if not trial.is_dir() or (trial / 'predictions').exists():
             continue
         try:
@@ -40,4 +69,6 @@ if __name__ == '__main__':
             'tile_config': TileConfig(TileSize(100, 100), overlap=0),
         }
         infer.out_dir = trial
-        infer.handle_checkpoint(best_checkpoint, tune_space)
+        infer.handle_checkpoint(
+            Path(best_checkpoint.path) / 'checkpoint.ckpt', tune_space
+        )

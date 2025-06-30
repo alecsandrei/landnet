@@ -3,16 +3,13 @@ from __future__ import annotations
 import ray
 import ray.util
 
-from landnet.config import (
-    CPUS,
-    GPUS,
-)
-from landnet.features.grids import GeomorphometricalVariable
+from landnet.config import CPUS, GPUS, TRIAL_NAME
+from landnet.enums import GeomorphometricalVariable
 from landnet.logger import create_logger
 from landnet.modelling import torch_clear
-from landnet.modelling.models import *
-from landnet.modelling.train import (
-    LandslideImagesCacher,
+from landnet.modelling.classification.models import *
+from landnet.modelling.classification.train import (
+    LandslideImageClassificationCacher,
     train_model,
 )
 from landnet.modelling.tune import MetricSorter
@@ -26,37 +23,37 @@ logger = create_logger(__name__)
 
 
 def train_models():  # type: ignore
-    sorter = MetricSorter('val_f_beta', 'max')
-    for var in GeomorphometricalVariable:
-        cacher = LandslideImagesCacher.remote()  # type: ignore
-        train_model([var], var.value, cacher, sorter)
+    sorter = MetricSorter('val_f2_score', 'max')
+    # vars = [
+    #     GeomorphometricalVariable.HILLSHADE,
+    #     GeomorphometricalVariable.TOPOGRAPHIC_POSITION_INDEX,
+    #     GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
+    #     GeomorphometricalVariable.DIGITAL_ELEVATION_MODEL,
+    #     GeomorphometricalVariable.EASTNESS,
+    #     GeomorphometricalVariable.SLOPE,
+    #     GeomorphometricalVariable.REAL_SURFACE_AREA,
+    #     GeomorphometricalVariable.FLOW_LINE_CURVATURE,
+    #     GeomorphometricalVariable.TERRAIN_RUGGEDNESS_INDEX,
+    #     GeomorphometricalVariable.LOCAL_CURVATURE,
+    # ]
+    # for var in vars:
+    #     cacher = LandslideImageClassificationCacher.remote()  # type: ignore
+    #     train_model([var], var.value, cacher, sorter)
+
+    cacher = LandslideImageClassificationCacher.remote()  # type: ignore
+    train_model(list(GeomorphometricalVariable), TRIAL_NAME, cacher, sorter)
     # train_model(
     #     [
-    #         # GeomorphometricalVariable('area'),
-    #         # GeomorphometricalVariable('cbl'),
-    #         # GeomorphometricalVariable('ccros'),
-    #         # GeomorphometricalVariable('cdl'),
-    #         # GeomorphometricalVariable('cdo'),
-    #         # GeomorphometricalVariable('cgene'),
-    #         # GeomorphometricalVariable('clong'),
-    #         # GeomorphometricalVariable('clo'),
-    #         # GeomorphometricalVariable('clu'),
-    #         # GeomorphometricalVariable('cmaxi'),
-    #         # GeomorphometricalVariable('cmini'),
-    #         # GeomorphometricalVariable('nego'),
-    #         # GeomorphometricalVariable('northness'),
-    #         # GeomorphometricalVariable('poso'),
-    #         # GeomorphometricalVariable('shade'),
-    #         GeomorphometricalVariable('slope'),
-    #         # GeomorphometricalVariable('cprof'),
-    #         # GeomorphometricalVariable('croto'),
-    #         # GeomorphometricalVariable('ctang'),
-    #         # GeomorphometricalVariable('cup'),
-    #         # GeomorphometricalVariable('dem'),
-    #         # GeomorphometricalVariable('eastness'),
-    #         # GeomorphometricalVariable('tpi'),
-    #         # GeomorphometricalVariable('tri'),
-    #         # GeomorphometricalVariable('wind'),
+    #         GeomorphometricalVariable.HILLSHADE,
+    #         GeomorphometricalVariable.TOPOGRAPHIC_POSITION_INDEX,
+    #         GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
+    #         GeomorphometricalVariable.DIGITAL_ELEVATION_MODEL,
+    #         GeomorphometricalVariable.EASTNESS,
+    #         GeomorphometricalVariable.SLOPE,
+    #         GeomorphometricalVariable.REAL_SURFACE_AREA,
+    #         GeomorphometricalVariable.FLOW_LINE_CURVATURE,
+    #         GeomorphometricalVariable.TERRAIN_RUGGEDNESS_INDEX,
+    #         GeomorphometricalVariable.LOCAL_CURVATURE,
     #     ],
     #     TRIAL_NAME,
     #     cacher,

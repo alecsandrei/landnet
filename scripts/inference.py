@@ -1,34 +1,50 @@
 from __future__ import annotations
 
+import geopandas as gpd
 import numpy as np
 
-from landnet.config import ARCHITECTURE, GRIDS, MODELS_DIR, PROCESSED_DATA_DIR
+from landnet.config import (
+    ARCHITECTURE,
+    GRIDS,
+    MODELS_DIR,
+    PROCESSED_DATA_DIR,
+)
 from landnet.enums import GeomorphometricalVariable, Mode
+from landnet.features.dataset import get_dem_tiles
 from landnet.features.tiles import TileConfig, TileSize
-from landnet.modelling.inference import (
+from landnet.modelling.classification.inference import (
     InferenceFolder,
     perform_inference_on_tiles,
 )
-import geopandas as gpd
-from landnet.modelling.lightning import LandslideImageClassifier
-from landnet.modelling.models import get_architecture
+from landnet.modelling.classification.lightning import LandslideImageClassifier
+from landnet.modelling.classification.models import get_architecture
 
 if __name__ == '__main__':
     variables = [
-        GeomorphometricalVariable.DOWNSLOPE_CURVATURE,
-        GeomorphometricalVariable.GENERAL_CURVATURE,
-        GeomorphometricalVariable.LOCAL_UPSLOPE_CURVATURE,
+        GeomorphometricalVariable.HILLSHADE,
+        GeomorphometricalVariable.TOPOGRAPHIC_POSITION_INDEX,
         GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
-        GeomorphometricalVariable.SLOPE,
+        GeomorphometricalVariable.DIGITAL_ELEVATION_MODEL,
+        # GeomorphometricalVariable.EASTNESS,
+        # GeomorphometricalVariable.SLOPE,
+        # GeomorphometricalVariable.REAL_SURFACE_AREA,
+        # GeomorphometricalVariable.FLOW_LINE_CURVATURE,
+        GeomorphometricalVariable.TERRAIN_RUGGEDNESS_INDEX,
+        # GeomorphometricalVariable.LOCAL_CURVATURE,
     ]
-    out_tiles = PROCESSED_DATA_DIR / 'dem_tiles_infered.fgb'
-    tiles = gpd.read_file(out_tiles)
+    out_tiles = PROCESSED_DATA_DIR / 'dem_tiles_infered_5vars.fgb'
+    try:
+        tiles = gpd.read_file(out_tiles)
+    except FileNotFoundError:
+        tiles = get_dem_tiles()
+        tiles['prediction'] = np.nan
     checkpoint = (
         MODELS_DIR
-        / '5vars_conv1x1_weightedBce_convnext_100x100/2025-04-02_09-54-28/TorchTrainer_2fc8ded1_4_batch_size=4,learning_rate=0.0001,tile_config=ref_ph_c793cfd2_2025-04-02_09-52-52/checkpoint_000004/checkpoint.ckpt'
+        / 'convnext_100x100_5vars/convnext_100x100_5vars/2025-06-27_16-46-08/TorchTrainer_05f6ed3b_2_batch_size=2,learning_rate=0.0000,tile_config=ref_ph_c793cfd2_2025-06-27_17-10-49/checkpoint_000008/checkpoint.ckpt'
     )
     classifier = LandslideImageClassifier.load_from_checkpoint(
-        checkpoint, model=get_architecture(ARCHITECTURE)(len(variables))
+        checkpoint,
+        model=get_architecture(ARCHITECTURE)(len(variables), Mode.INFERENCE),
     )
 
     missing = tiles['prediction'].isna()
@@ -36,7 +52,7 @@ if __name__ == '__main__':
         (id1, id2), subset = group
         folder = InferenceFolder(
             parent=GRIDS / Mode.INFERENCE.value / id1 / id2,
-            tile_config=TileConfig(TileSize(100, 100)),
+            tile_config=TileConfig(TileSize(100, 100), overlap=0),
             tiles=subset,
             variables=variables,
         )

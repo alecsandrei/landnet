@@ -9,13 +9,13 @@ import pandas as pd
 from PySAGA_cmd import SAGA
 
 from landnet.config import DEM_TILES, GRIDS, INFERENCE_TILES
-from landnet.dataset import get_dem_tiles
-from landnet.enums import Mode
+from landnet.enums import GeomorphometricalVariable, Mode
+from landnet.features.dataset import get_dem_tiles
 from landnet.features.grids import (
-    GeomorphometricalVariable,
+    Grid,
     TerrainAnalysis,
 )
-from landnet.features.tiles import Grid, RasterTiles, TileConfig, TileSize
+from landnet.features.tiles import RasterTiles, TileConfig, TileSize
 from landnet.logger import create_logger
 
 logger = create_logger(__name__)
@@ -52,14 +52,17 @@ def compute_grids(
     variables: c.Sequence[GeomorphometricalVariable],
     mask_geometry,
 ):
-    logger.debug('Resampling %r for %sing' % (tiles, Mode.INFERENCE))
+    logger.debug('Resampling %r for %sing' % (tiles, Mode.INFERENCE.value))
     resampled = tiles.resample(resample_dir, Mode.INFERENCE)
-    logger.debug('Merging %r for %sing' % (resampled, Mode.INFERENCE))
+    logger.debug('Merging %r for %sing' % (resampled, Mode.INFERENCE.value))
     merged = resampled.merge(out_dir / 'dem.tif')
     compute_grids_for_dem(merged, saga, Mode.INFERENCE, variables)
+    variable_names = [variable.value for variable in variables]
     for grid in out_dir.glob('*.tif'):
+        if grid.stem not in variable_names:
+            continue
         logger.info('Masking %s' % grid)
-        Grid(grid, TileConfig(TileSize(100, 100))).mask(
+        Grid(grid, TileConfig(TileSize(100, 100)), mode=Mode.INFERENCE).mask(
             mask_geometry, overwrite=True
         )
 
@@ -68,13 +71,19 @@ if __name__ == '__main__':
     # Load DEM tiles
     saga = SAGA('saga_cmd')
     variables = [
-        GeomorphometricalVariable.DOWNSLOPE_CURVATURE,
-        GeomorphometricalVariable.GENERAL_CURVATURE,
-        GeomorphometricalVariable.LOCAL_UPSLOPE_CURVATURE,
+        GeomorphometricalVariable.HILLSHADE,
+        GeomorphometricalVariable.TOPOGRAPHIC_POSITION_INDEX,
         GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
+        GeomorphometricalVariable.DIGITAL_ELEVATION_MODEL,
+        GeomorphometricalVariable.EASTNESS,
         GeomorphometricalVariable.SLOPE,
+        GeomorphometricalVariable.REAL_SURFACE_AREA,
+        GeomorphometricalVariable.FLOW_LINE_CURVATURE,
+        GeomorphometricalVariable.TERRAIN_RUGGEDNESS_INDEX,
+        GeomorphometricalVariable.LOCAL_CURVATURE,
     ]
     dem_tiles = get_dem_tiles()
+    dem_tiles = dem_tiles[dem_tiles['id1'].astype(int) >= 73]
     path_split = dem_tiles['path'].str.split('/')
     dem_tiles['lat_long'] = path_split.str.get(0) + '/' + path_split.str.get(1)
     for group in dem_tiles.groupby('lat_long'):
