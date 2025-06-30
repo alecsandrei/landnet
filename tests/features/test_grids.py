@@ -21,11 +21,11 @@ def test_get_masked_tile():
     config = TileConfig(
         TileSize(expected_shape[1], expected_shape[2]), overlap=0
     )
-    grid = Grid(GRID, config, landslides=LANDSLIDES.geometry)
-    _, array, _ = grid.get_tile_mask(399, Mode.TRAIN)  # has landslides
+    grid = Grid(GRID, config, landslides=LANDSLIDES.geometry, mode=Mode.TRAIN)
+    _, array, _ = grid.get_tile_mask(399)  # has landslides
     assert array.shape == expected_shape
     assert 1 in array[1, :, :]
-    _, array, _ = grid.get_tile_mask(0, Mode.TRAIN)  # does not have landslides
+    _, array, _ = grid.get_tile_mask(0)  # does not have landslides
     assert (array[0, :, :] == 1).all()
     assert array.shape == expected_shape
 
@@ -36,7 +36,7 @@ def test_get_tile():
     config = TileConfig(
         TileSize(expected_shape[1], expected_shape[2]), overlap=0
     )
-    grid = Grid(GRID, config, landslides=LANDSLIDES.geometry)
+    grid = Grid(GRID, config, landslides=LANDSLIDES.geometry, mode=Mode.TRAIN)
     _, array, _ = grid.get_tile(0)
     assert array.shape == expected_shape
 
@@ -47,7 +47,7 @@ def test_get_tiles():
     config = TileConfig(
         TileSize(expected_shape[1], expected_shape[2]), overlap=0
     )
-    grid = Grid(GRID, config, landslides=LANDSLIDES.geometry)
+    grid = Grid(GRID, config, landslides=LANDSLIDES.geometry, mode=Mode.TRAIN)
     for metadata, array in grid.get_tiles():
         assert array.shape == expected_shape
 
@@ -58,7 +58,7 @@ def test_write_tile(tmp_path: Path):
     config = TileConfig(
         TileSize(expected_shape[1], expected_shape[2]), overlap=0
     )
-    grid = Grid(GRID, config, landslides=LANDSLIDES.geometry)
+    grid = Grid(GRID, config, landslides=LANDSLIDES.geometry, mode=Mode.TRAIN)
     _, tile_array, _ = grid.get_tile(0)
     out_file = grid.write_tile(0, tile_array, out_dir=tmp_path)
     with rasterio.open(out_file) as src:
