@@ -9,8 +9,8 @@ class LandslideClass(Enum):
 
 
 class Mode(Enum):
-    TRAIN = 'test'
-    TEST = 'train'
+    TRAIN = 'train'
+    TEST = 'test'
     VALIDATION = 'validation'
     INFERENCE = 'inference'
 
