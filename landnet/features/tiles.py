@@ -37,19 +37,19 @@ logger = create_logger(__name__)
 
 @dataclass
 class TileSize:
-    width: int
-    height: int
+    width: float
+    height: float
 
     def __hash__(self) -> int:
         return hash(str(self))
 
     def __str__(self):
-        return f'{self.width}x{self.height}'
+        return f"{self.width}x{self.height}"
 
     @classmethod
     def from_string(cls, string: str):
-        split = string.split('x')
-        return TileSize(int(split[0]), int(split[1]))
+        split = string.split("x")
+        return TileSize(float(split[0]), float(split[1]))
 
 
 @dataclass
@@ -62,9 +62,7 @@ class TileConfig:
 class TileHandler:
     config: TileConfig
 
-    def _compute_tiles_grid(
-        self, src: DatasetReader
-    ) -> tuple[int, int, int, int]:
+    def _compute_tiles_grid(self, src: DatasetReader) -> tuple[int, int, int, int]:
         """Compute the number of tiles and step sizes in x and y directions."""
         ncols, nrows = src.width, src.height
         xstep = self.config.size.width - self.config.overlap
@@ -101,9 +99,7 @@ class TileHandler:
         x = index_x * (self.config.size.width - self.config.overlap)
         y = index_y * (self.config.size.height - self.config.overlap)
 
-        window = windows.Window(
-            x, y, self.config.size.width, self.config.size.height
-        )
+        window = windows.Window(x, y, self.config.size.width, self.config.size.height)
         transform = windows.transform(window, src.transform)
         return window, transform
 
@@ -163,15 +159,12 @@ class RasterTiles:
     parent_dir: Path
 
     @classmethod
-    def from_dir(
-        cls, tiles_parent: Path, mode: Mode, suffix: str = '.tif'
-    ) -> t.Self:
+    def from_dir(cls, tiles_parent: Path, mode: Mode, suffix: str = ".tif") -> t.Self:
         geojson = get_empty_geojson()
-        images = list(tiles_parent.rglob(f'*{suffix}'))
+        images = list(tiles_parent.rglob(f"*{suffix}"))
         if not images:
             logger.error(
-                'No raster images found in %r with suffix %s'
-                % (tiles_parent, suffix)
+                "No raster images found in %r with suffix %s" % (tiles_parent, suffix)
             )
             return cls(gpd.GeoDataFrame(geojson), tiles_parent)
 
@@ -182,10 +175,8 @@ class RasterTiles:
                 for feature in features
             ]
             if len(processed_features) == 0:
-                logger.error(
-                    'Failed to process dataset feature for raster %r' % image
-                )
-            geojson['features'].extend(processed_features)
+                logger.error("Failed to process dataset feature for raster %r" % image)
+            geojson["features"].extend(processed_features)
         return cls(geojson_to_gdf(geojson), tiles_parent)
 
     @classmethod
@@ -195,24 +186,22 @@ class RasterTiles:
         config: TileConfig,
         out_dir: Path,
         mode: Mode,
-        suffix: str = '.tif',
+        suffix: str = ".tif",
     ) -> t.Self:
         handler = TileHandler(config)
-        with rasterio.open(raster, mode='r') as src:
+        with rasterio.open(raster, mode="r") as src:
             metadata = src.meta.copy()
 
             def handle_window(input: tuple[windows.Window, t.Any]):
                 window, transform = input
-                metadata['transform'] = transform
-                metadata['width'], metadata['height'] = (
+                metadata["transform"] = transform
+                metadata["width"], metadata["height"] = (
                     window.width,
                     window.height,
                 )
-                out_filepath = (
-                    out_dir / f'{window.col_off}_{window.row_off}{suffix}'
-                )
+                out_filepath = out_dir / f"{window.col_off}_{window.row_off}{suffix}"
 
-                with rasterio.open(out_filepath, 'w', **metadata) as dst:
+                with rasterio.open(out_filepath, "w", **metadata) as dst:
                     dst.write(src.read(window=window))
 
             for i in range(handler.get_tiles_length(src)):
@@ -222,23 +211,21 @@ class RasterTiles:
 
     def add_overlap(self, mode: Mode, tile_config: TileConfig) -> t.Self:
         handler = TileHandler(tile_config)
-        merged = self.merge(self.parent_dir / 'merged.tif')
-        parent_dir = self.parent_dir.parent / f'overlap_{self.parent_dir.name}'
+        merged = self.merge(self.parent_dir / "merged.tif")
+        parent_dir = self.parent_dir.parent / f"overlap_{self.parent_dir.name}"
         with rasterio.open(merged) as src:
             metadata = src.meta.copy()
 
             for window, transform in handler.get_tiles(src):
-                metadata['transform'] = transform
-                metadata['width'], metadata['height'] = (
+                metadata["transform"] = transform
+                metadata["width"], metadata["height"] = (
                     window.width,
                     window.height,
                 )
                 bounds = box(*windows.bounds(window, src.transform))
-                out_filepath = parent_dir / get_tile_relative_path(
-                    self.tiles, bounds
-                )
+                out_filepath = parent_dir / get_tile_relative_path(self.tiles, bounds)
                 os.makedirs(out_filepath.parent, exist_ok=True)
-                with rasterio.open(out_filepath, 'w', **metadata) as dst:
+                with rasterio.open(out_filepath, "w", **metadata) as dst:
                     dst.write(src.read(window=window))
         return self.from_dir(parent_dir, mode)
 
@@ -259,15 +246,13 @@ class RasterTiles:
             with rasterio.open(path) as ds:
                 arr = ds.read(1)
                 meta = ds.meta.copy()
-                newaff, width, height = (
-                    rasterio.warp.calculate_default_transform(
-                        ds.crs,
-                        ds.crs,
-                        ds.width,
-                        ds.height,
-                        *ds.bounds,
-                        resolution=(tile_size.width, tile_size.height),
-                    )
+                newaff, width, height = rasterio.warp.calculate_default_transform(
+                    ds.crs,
+                    ds.crs,
+                    ds.width,
+                    ds.height,
+                    *ds.bounds,
+                    resolution=(tile_size.width, tile_size.height),
                 )
                 newarr = np.ma.asanyarray(
                     np.empty(
@@ -290,51 +275,45 @@ class RasterTiles:
                 )
                 meta.update(
                     {
-                        'transform': newaff,
-                        'width': width,
-                        'height': height,
-                        'nodata': NODATA,
-                        'crs': crs,
+                        "transform": newaff,
+                        "width": width,
+                        "height": height,
+                        "nodata": NODATA,
+                        "crs": crs,
                     }
                 )
-                with rasterio.open(dest, mode='w', **meta) as dest_raster:
+                with rasterio.open(dest, mode="w", **meta) as dest_raster:
                     dest_raster.write(newarr)
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            results = executor.map(from_path, self.tiles['path'])
+            results = executor.map(from_path, self.tiles["path"])
             # TODO: use submit instead and handle each error separately
             try:
                 for _ in results:
                     ...
             except Exception as e:
-                logger.error('Error %s occured.' % e)
+                logger.error("Error %s occured." % e)
 
         return self.from_dir(out_dir, mode)
 
     def merge(
         self, out_file: Path, merge_kwargs: dict[str, t.Any] | None = None
     ) -> Path:
-        paths = (
-            self.parent_dir.as_posix()
-            + '/'
-            + self.tiles['path'].str.lstrip('/')
-        )
+        paths = self.parent_dir.as_posix() + "/" + self.tiles["path"].str.lstrip("/")
         out_file.unlink(missing_ok=True)
         if merge_kwargs is None:
             merge_kwargs = {}
-        merge_kwargs.setdefault('nodata', NODATA)
-        merge_kwargs.setdefault('resampling', Resampling.bilinear)
+        merge_kwargs.setdefault("nodata", NODATA)
+        merge_kwargs.setdefault("resampling", Resampling.bilinear)
         # merge_kwargs.setdefault('method', RasterTiles.custom_merge_mean)
-        merge_kwargs.setdefault('target_aligned_pixels', True)
+        merge_kwargs.setdefault("target_aligned_pixels", True)
         rasterio.merge.merge(paths.values, dst_path=out_file, **merge_kwargs)
         return out_file
 
     @staticmethod
-    def custom_merge_mean(
-        merged_data, new_data, merged_mask, new_mask, **kwargs
-    ):
+    def custom_merge_mean(merged_data, new_data, merged_mask, new_mask, **kwargs):
         """Returns the maximum value pixel."""
-        mask = np.empty_like(merged_mask, dtype='bool')
+        mask = np.empty_like(merged_mask, dtype="bool")
         np.logical_or(merged_mask, new_mask, out=mask)
         np.logical_not(mask, out=mask)
         merged_data[mask] = np.mean(
@@ -342,7 +321,7 @@ class RasterTiles:
         )
         np.logical_not(new_mask, out=mask)
         np.logical_and(merged_mask, mask, out=mask)
-        np.copyto(merged_data, new_data, where=mask, casting='unsafe')
+        np.copyto(merged_data, new_data, where=mask, casting="unsafe")
 
 
 # @dataclass
@@ -350,6 +329,6 @@ class RasterTiles:
 
 
 def get_dem_cell_size(raster: Path) -> tuple[float, float]:
-    with rasterio.open(raster, mode='r') as r:
+    with rasterio.open(raster, mode="r") as r:
         x, y = r.res
     return (x, y)

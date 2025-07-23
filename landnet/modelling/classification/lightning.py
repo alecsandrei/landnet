@@ -89,7 +89,7 @@ class LandslideImageClassifier(pl.LightningModule):
     def training_step(self, train_batch, batch_idx):
         x, y = train_batch
         logits = self.forward(x)
-        self.train_metrics.update(logits, y)
+        self.train_metrics.update(torch.sigmoid(logits), y)
         loss = self.criterion(logits, y.float())
         self.log('train_loss', loss, sync_dist=True)
         return loss
@@ -101,7 +101,7 @@ class LandslideImageClassifier(pl.LightningModule):
     def validation_step(self, val_batch, batch_idx):
         x, y = val_batch
         logits = self.forward(x)
-        self.val_metrics.update(logits, y)
+        self.val_metrics.update(torch.sigmoid(logits), y)
         loss = self.criterion(logits, y.float())
         self.log('val_loss', loss, sync_dist=True)
         return loss
@@ -109,7 +109,7 @@ class LandslideImageClassifier(pl.LightningModule):
     def test_step(self, test_batch, batch_idx):
         x, y = test_batch
         logits = self.forward(x)
-        self.test_metrics.update(logits, y)
+        self.test_metrics.update(torch.sigmoid(logits), y)
         loss = self.criterion(logits, y.float())
         self.log_dict(self.test_metrics.compute(), sync_dist=True)
         self.log('test_loss', loss, sync_dist=True)

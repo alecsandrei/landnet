@@ -12,8 +12,6 @@ from torchvision.transforms.v2 import (
     InterpolationMode,
     Lambda,
     Normalize,
-    RandomHorizontalFlip,
-    RandomVerticalFlip,
     ToTensor,
     functional,
 )
@@ -37,9 +35,9 @@ class ResizeTensor:
     size: list[int]
     interpolation: InterpolationMode = InterpolationMode.BILINEAR
 
-    def __call__(self, img: Tensor) -> Tensor:
+    def __call__(self, image: Tensor) -> Tensor:
         return functional.resize(
-            img, self.size, interpolation=self.interpolation
+            image, self.size, interpolation=self.interpolation
         )
 
 
@@ -50,6 +48,30 @@ class RandomRotateTensor:
     def __call__(self, *imgs: Tensor) -> list[Tensor]:
         choice = np.random.choice(self.angles)
         return [functional.rotate(img, int(choice)) for img in imgs]
+
+
+class ConsistentVerticalFlip:
+    def __init__(self, p=0.5):
+        self.p = p
+
+    def __call__(self, *images: Tensor) -> list[Tensor] | tuple[Tensor, ...]:
+        do_flip = np.random.random() < self.p
+        images_list = list(images)
+        if do_flip:
+            images_list = [functional.vflip(img) for img in images_list]
+        return images_list
+
+
+class ConsistentHorizontalFlip:
+    def __init__(self, p=0.5):
+        self.p = p
+
+    def __call__(self, *images: Tensor) -> list[Tensor] | tuple[Tensor, ...]:
+        do_flip = np.random.random() < self.p
+        images_list = list(images)
+        if do_flip:
+            images_list = [functional.hflip(img) for img in images_list]
+        return images_list
 
 
 def get_default_transform(size: int = 224):
@@ -75,8 +97,8 @@ def get_default_mask_transform(size: int = 224):
 def get_default_augment_transform():
     return Compose(
         [
-            RandomHorizontalFlip(p=0.5),
-            RandomVerticalFlip(p=0.5),
+            ConsistentHorizontalFlip(p=0.5),
+            ConsistentVerticalFlip(p=0.5),
             RandomRotateTensor([0, 90, 180, 270]),
         ]
     )

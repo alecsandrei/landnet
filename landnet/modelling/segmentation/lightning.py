@@ -16,7 +16,7 @@ from landnet.modelling.models import read_legacy_checkpoint
 from landnet.modelling.segmentation.dataset import (
     ConcatLandslideImageSegmentation,
     LandslideImageSegmentation,
-    get_segmentation_dataloader,
+    get_weighted_segmentation_dataloader,
 )
 from landnet.modelling.segmentation.stats import SegmentationMetricCollection
 
@@ -40,6 +40,14 @@ class LandslideImageSegmenter(pl.LightningModule):
         self.train_metrics = SegmentationMetricCollection(
             num_classes=num_classes, prefix='train_'
         )
+        # self.train_metrics.add_metrics(
+        #    {
+        #        name: metric
+        #        for name, metric in BinaryClassificationMetricCollection(
+        #            prefix='train_'
+        #        ).items()
+        #    }
+        # )
 
         self.val_metrics = self.train_metrics.clone(prefix='val_')
         self.test_metrics = self.train_metrics.clone(prefix='test_')
@@ -185,7 +193,7 @@ class LandslideImageSegmenter(pl.LightningModule):
 
     def configure_optimizers(self):
         assert 'learning_rate' in self.config
-        optimizer = torch.optim.Adam(
+        optimizer = torch.optim.AdamW(
             self.parameters(), lr=self.config['learning_rate']
         )
         return optimizer
@@ -262,10 +270,15 @@ class LandslideImageSegmentationDataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         assert self.train_dataset is not None
-        return get_segmentation_dataloader(
+        assert isinstance(
+            self.train_dataset, ConcatLandslideImageSegmentation
+        ), (
+            'Segmentation only works for ConcatLandslideImageSegmentation dataset for now'
+        )
+        return get_weighted_segmentation_dataloader(
             self.train_dataset,
-            size=len(self.train_dataset),
-            # size=1000,
+            # size=len(self.train_dataset),
+            size=500,
             batch_size=self.config['batch_size'],
             num_workers=4,
             prefetch_factor=4,  # Load 4 batches ahead

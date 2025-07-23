@@ -250,14 +250,14 @@ def perform_inference_on_tiles(
         dataset, batch_size=batch_size, num_workers=num_workers, pin_memory=True
     )
 
-    logits: list[np.ndarray] = []
+    probabilities_list: list[np.ndarray] = []
     classifier.eval()
     with torch.no_grad():
         for batch in dataloader:
             batch = batch.to(classifier.device, non_blocking=True)
-            logit = torch.sigmoid(classifier(batch))
-            logits.extend(logit.cpu().numpy())
-    return np.array(logits)
+            probabilities = torch.sigmoid(classifier(batch))
+            probabilities_list.extend(probabilities.cpu().numpy())
+    return np.array(probabilities_list)
 
 
 class Pad:

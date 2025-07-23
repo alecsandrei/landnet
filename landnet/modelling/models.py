@@ -50,7 +50,8 @@ class ModelBuilder(ABC, t.Generic[T]):
         """Build the model with the specified input channels and mode."""
         model = self._get_model(mode)
 
-        with_adapted_input = self._adapt_input_channels(model, in_channels)
+        # with_adapted_input = self._adapt_input_channels(model, in_channels)
+        with_adapted_input = model
         with_adapted_output = self._adapt_output_features(with_adapted_input)
 
         return self._finalize_model(with_adapted_output)

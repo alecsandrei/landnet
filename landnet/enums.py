@@ -9,8 +9,8 @@ class LandslideClass(Enum):
 
 
 class Mode(Enum):
-    TRAIN = 'train'
-    TEST = 'test'
+    TRAIN = 'test'
+    TEST = 'train'
     VALIDATION = 'validation'
     INFERENCE = 'inference'
 
@@ -62,3 +62,4 @@ class Architecture(Enum):
     RESNET50KAN = 'resnet50kan'
     DEEPLABV3 = 'deeplabv3'
     FCN = 'fcn'
+    UNET = 'unet'

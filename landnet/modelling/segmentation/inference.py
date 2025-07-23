@@ -8,12 +8,14 @@ from dataclasses import dataclass
 import lightning as pl
 import numpy as np
 import torch
+from torch import nn
 from torch.utils.data import DataLoader
 from torchvision.transforms.v2.functional import InterpolationMode, resize
 
 from landnet.config import ARCHITECTURE, GRIDS, PROCESSED_DATA_DIR
 from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.grids import Grid
+from landnet.logger import create_logger
 from landnet.modelling.segmentation.dataset import (
     ConcatLandslideImageSegmentation,
     LandslideImageSegmentation,
@@ -24,6 +26,8 @@ from landnet.typing import TuneSpace
 
 if t.TYPE_CHECKING:
     from pathlib import Path
+
+logger = create_logger(__name__)
 
 
 @dataclass
@@ -42,21 +46,29 @@ class Infer:
     ) -> LandslideImageSegmentation:
         grid = (GRIDS / mode.value / variable.value).with_suffix('.tif')
         tile_config = self.config['tile_config']
-        tile_config.overlap = 0  # In inferance mode, this should be 0
+        if tile_config.overlap != 0:
+            logger.warning(
+                'TileConfig overlap is not 0, this may result in unexpected behaviour'
+            )
+        # tile_config.overlap = 0  # In inferance mode, this should be 0
         return LandslideImageSegmentation(
             Grid(grid, tile_config, mode=mode), mode=mode
         )
 
-    def handle_checkpoint(self, checkpoint_path: os.PathLike | str) -> None:
+    def handle_checkpoint(
+        self, checkpoint_path: os.PathLike | str, model: nn.Module | None = None
+    ) -> None:
+        if model is None:
+            model = get_architecture(ARCHITECTURE)(
+                len(self.variables), Mode.INFERENCE
+            )
         segmenter = LandslideImageSegmenter.load_from_checkpoint(
             checkpoint_path,
-            model=get_architecture(ARCHITECTURE)(
-                len(self.variables), Mode.INFERENCE
-            ),
+            model=model,
             tune_space=self.config,
             strict=False,
         )
-        for mode in (Mode.TRAIN, Mode.TEST):
+        for mode in (Mode.TRAIN, Mode.TEST, Mode.VALIDATION):
             self._handle_mode(segmenter, mode)
 
     def _handle_mode(
@@ -83,7 +95,7 @@ class Infer:
         output = self._get_predictions(segmenter, loader)
         for i, batch in enumerate(output):
             batch_mask = batch[1]
-            for j in range(self.config['batch_size']):
+            for j in range(batch_mask.shape[0]):
                 index = i * self.config['batch_size'] + j
                 mask = batch_mask.select(0, j)
                 resized_mask = resize(

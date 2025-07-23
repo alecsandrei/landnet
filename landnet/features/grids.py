@@ -23,12 +23,8 @@ from shapely.geometry.base import BaseGeometry
 from landnet.config import (
     EPSG,
     GRIDS,
-    INFERENCE_TILES,
     INTERIM_DATA_DIR,
     SAGAGIS_NODATA,
-    TEST_TILES,
-    TRAIN_TILES,
-    VALIDATION_TILES,
 )
 from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.dataset import (
@@ -36,7 +32,7 @@ from landnet.features.dataset import (
     get_limit,
     get_percentage_intersection,
 )
-from landnet.features.tiles import RasterTiles, TileConfig, TileHandler
+from landnet.features.tiles import TileConfig, TileHandler
 from landnet.logger import create_logger
 from landnet.typing import GridTypes, Metadata
 
@@ -53,7 +49,6 @@ class TerrainAnalysis:
     def __init__(
         self,
         dem: PathLike,
-        mode: Mode,
         saga: SAGA,
         verbose: bool,
         infer_obj_type: bool,
@@ -63,10 +58,8 @@ class TerrainAnalysis:
     ):
         self.dem = Path(dem)
         self.dem_edge = Path(dem_edge) if dem_edge is not None else None
-        assert self.dem.is_relative_to(INTERIM_DATA_DIR)
         if self.dem_edge:
             assert self.dem_edge.is_relative_to(INTERIM_DATA_DIR)
-        self.mode = mode
         self.saga = saga
         self.verbose = verbose
         self.infer_obj_type = infer_obj_type
@@ -687,41 +680,27 @@ class Grid:
 def compute_grids_for_dem(
     dem: Path,
     saga: SAGA,
-    mode: Mode,
     variables: c.Sequence[GeomorphometricalVariable] | None = None,
 ):
     for tool_name, _ in TerrainAnalysis(
         dem,
-        mode=mode,
         saga=saga,
         verbose=False,
         infer_obj_type=False,
         ignore_stderr=False,
         variables=variables,
     ).execute():
-        logger.info('%s finished executing for %r' % (tool_name, mode))
+        logger.info('%s finished executing' % tool_name)
 
 
 def compute_grids(
-    tiles: RasterTiles,
+    dem: Path,
     mode: Mode,
     saga: SAGA,
     out_dir: Path | None = None,
     variables: c.Sequence[GeomorphometricalVariable] | None = None,
 ):
-    dir_map = {
-        Mode.TRAIN: TRAIN_TILES,
-        Mode.TEST: TEST_TILES,
-        Mode.INFERENCE: INFERENCE_TILES,
-        Mode.VALIDATION: VALIDATION_TILES,
-    }
-    if out_dir is None:
-        out_dir = dir_map[mode] / 'dem' / '100x100'
-    logger.debug('Resampling %r for %s' % (tiles, mode))
-    resampled = tiles.resample(out_dir, mode)
-    logger.debug('Merging %r for %s' % (resampled, mode))
-    merged = resampled.merge(GRIDS / mode.value / 'dem.tif')
-    with rasterio.open(merged) as src:
+    with rasterio.open(dem) as src:
         profile = src.profile.copy()
         out_image, out_transform = rasterio.mask.mask(
             src, shapes=[get_limit(mode)], crop=True, filled=False
@@ -736,10 +715,10 @@ def compute_grids(
 
         data = src.read(window=data_window)
 
-    with rasterio.open(merged, 'w', **profile) as dst:
+    with rasterio.open(dem, 'w', **profile) as dst:
         dst.write(data)
 
-    compute_grids_for_dem(merged, saga, mode, variables)
+    compute_grids_for_dem(dem, saga, variables)
 
 
 def get_grid_for_variable(

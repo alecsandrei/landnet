@@ -3,7 +3,8 @@ from __future__ import annotations
 import collections.abc as c
 import typing as t
 
-from torch import nn
+import segmentation_models_pytorch as smp
+from torch import hub, nn
 from torchvision.models.segmentation import (
     FCN,
     DeepLabV3,
@@ -68,7 +69,49 @@ class FCNResNet50Builder(ModelBuilder):
         return model
 
 
+def get_unet_model_milesial():
+    return hub.load(
+        'milesial/Pytorch-UNet',
+        'unet_carvana',
+        pretrained=PRETRAINED,
+        scale=0.5,
+    )
+
+
+def get_unet_model_smp(in_channels: int, classes: int):
+    return smp.Unet(
+        encoder_name='resnet101',
+        in_channels=in_channels,
+        classes=classes,
+        encoder_weights='imagenet' if PRETRAINED else None,
+    )
+
+
+class UNetBuilder(ModelBuilder):
+    def __init__(self, in_channels: int, classes: int):
+        super().__init__(
+            model=lambda: get_unet_model_smp(
+                in_channels=in_channels, classes=classes
+            ),
+            weights=None,
+        )
+
+    def _adapt_output_features(self, model: M) -> M:
+        # breakpoint()
+        # if isinstance(model, nn.Sequential):
+        #     fcn = model[1]
+        # else:
+        #     fcn = model
+        # fcn = t.cast(FCN, fcn)
+        # assert isinstance(fcn.classifier, nn.Sequential)
+        # fcn.classifier[-1] = nn.Conv2d(
+        #     512, 2, kernel_size=(1, 1), stride=(1, 1)
+        # )
+        return model
+
+
 MODEL_BUILDERS: dict[Architecture, ModelBuilder] = {
     Architecture.DEEPLABV3: DeepLabV3ResNet50Builder(),
     Architecture.FCN: FCNResNet50Builder(),
+    # Architecture.UNET: UNetBuilder(),
 }
