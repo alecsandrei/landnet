@@ -41,24 +41,36 @@ def train_models():  # type: ignore
     #     train_model([var], var.value, cacher, sorter)
 
     cacher = LandslideImageClassificationCacher.remote()  # type: ignore
-    train_model(list(GeomorphometricalVariable), TRIAL_NAME, cacher, sorter)
-    # train_model(
-    #     [
-    #         GeomorphometricalVariable.HILLSHADE,
-    #         GeomorphometricalVariable.TOPOGRAPHIC_POSITION_INDEX,
-    #         GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
-    #         GeomorphometricalVariable.DIGITAL_ELEVATION_MODEL,
-    #         GeomorphometricalVariable.EASTNESS,
-    #         GeomorphometricalVariable.SLOPE,
-    #         GeomorphometricalVariable.REAL_SURFACE_AREA,
-    #         GeomorphometricalVariable.FLOW_LINE_CURVATURE,
-    #         GeomorphometricalVariable.TERRAIN_RUGGEDNESS_INDEX,
-    #         GeomorphometricalVariable.LOCAL_CURVATURE,
-    #     ],
-    #     TRIAL_NAME,
-    #     cacher,
-    #     sorter,
-    # )
+    # train_model(list(GeomorphometricalVariable), TRIAL_NAME, cacher, sorter)
+    train_model(
+        [
+            GeomorphometricalVariable('shade'),
+            GeomorphometricalVariable('cup'),
+            GeomorphometricalVariable('area'),
+            GeomorphometricalVariable('cprof'),
+            GeomorphometricalVariable('tpi'),
+            GeomorphometricalVariable('dem'),
+            GeomorphometricalVariable('nego'),
+            GeomorphometricalVariable('eastness'),
+            GeomorphometricalVariable('tri'),
+            GeomorphometricalVariable('cmini'),
+        ],
+        TRIAL_NAME,
+        cacher,
+        sorter,
+    )
+
+    #     GeomorphometricalVariable.HILLSHADE,
+    #     GeomorphometricalVariable.TOPOGRAPHIC_POSITION_INDEX,
+    #     GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
+    #     GeomorphometricalVariable.DIGITAL_ELEVATION_MODEL,
+    #     GeomorphometricalVariable.EASTNESS,
+    #     GeomorphometricalVariable.SLOPE,
+    #     GeomorphometricalVariable.REAL_SURFACE_AREA,
+    #     GeomorphometricalVariable.FLOW_LINE_CURVATURE,
+    #     GeomorphometricalVariable.TERRAIN_RUGGEDNESS_INDEX,
+    #     GeomorphometricalVariable.LOCAL_CURVATURE,
+    # ],
 
 
 if __name__ == '__main__':

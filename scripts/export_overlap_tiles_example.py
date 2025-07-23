@@ -21,14 +21,16 @@ if __name__ == '__main__':
     tile_config = TileConfig(TileSize(100, 100), OVERLAP)
     grid = Grid(
         (
-            GRIDS / Mode.TRAIN.value / GeomorphometricalVariable.SLOPE.value
+            GRIDS
+            / Mode.VALIDATION.value
+            / GeomorphometricalVariable.SLOPE.value
         ).with_suffix('.tif'),
         tile_config,
-        mode=Mode.TRAIN,
+        mode=Mode.VALIDATION,
     )
 
     landslide_image_classification = LandslideImageClassification(
-        grid, mode=Mode.TRAIN
+        grid, mode=Mode.VALIDATION
     )
     dataloader = create_classification_dataloader(
         landslide_image_classification,
@@ -44,7 +46,9 @@ if __name__ == '__main__':
         [grid.get_tile_bounds(i)[2] for i in range(grid.get_tiles_length())],
         crs=EPSG,
     )
-    all_tiles.to_file(INTERIM_DATA_DIR / f'tiles_overlap_{OVERLAP}.fgb')
+    all_tiles.to_file(
+        INTERIM_DATA_DIR / f'tiles_overlap_{OVERLAP}_validation.fgb'
+    )
     subset = gpd.GeoSeries(
         [
             grid.get_tile_bounds(i)[2]
@@ -52,4 +56,6 @@ if __name__ == '__main__':
         ],
         crs=EPSG,
     )
-    subset.to_file(INTERIM_DATA_DIR / f'tiles_overlap_{OVERLAP}_subset.fgb')
+    subset.to_file(
+        INTERIM_DATA_DIR / f'tiles_overlap_{OVERLAP}_validation_subset.fgb'
+    )
