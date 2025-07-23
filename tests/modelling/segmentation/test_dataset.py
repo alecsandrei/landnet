@@ -6,7 +6,6 @@ import math
 from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.grids import get_grid_for_variable
 from landnet.features.tiles import TileConfig, TileSize
-from landnet.modelling import torch_clear
 from landnet.modelling.dataset import (
     get_default_mask_transform,
     get_default_transform,
@@ -16,8 +15,6 @@ from landnet.modelling.segmentation.dataset import (
     LandslideImageSegmentation,
     get_weighted_segmentation_dataloader,
 )
-
-torch_clear()
 
 
 def get_concat_landslide_image_segmentation(
