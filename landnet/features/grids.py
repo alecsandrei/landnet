@@ -601,12 +601,15 @@ class Grid:
         out_file = out_dir / f'{prefix}{self.path.name}'
 
         metadata, tile_array, bounds = self.get_tile(index)
-        if not array.shape == tile_array.shape:
+        metadata.update({'count': array.shape[0]})
+        assert array.ndim == 3, ('array must be 3-dimensional, got', array.ndim)
+        if not array.shape[1:] == tile_array.shape[1:]:
             raise Exception(
                 f'shape mismatch between arrays: {array.shape} -> {tile_array.shape}'
             )
         with rasterio.open(out_file, mode='w', **metadata) as dest:
-            dest.write(array)
+            for i in range(array.shape[0] - 1, -1, -1):
+                dest.write(array[i], i + 1)
         return out_file
 
     def get_tiles(self) -> c.Generator[tuple[Metadata, np.ndarray]]:

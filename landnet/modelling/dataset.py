@@ -45,9 +45,9 @@ class RandomRotateTensor:
     def __init__(self, angles: c.Sequence[int]):
         self.angles = angles
 
-    def __call__(self, *imgs: Tensor) -> list[Tensor]:
+    def __call__(self, *images: Tensor) -> list[Tensor]:
         choice = np.random.choice(self.angles)
-        return [functional.rotate(img, int(choice)) for img in imgs]
+        return [functional.rotate(img, int(choice)) for img in images]
 
 
 class ConsistentVerticalFlip:

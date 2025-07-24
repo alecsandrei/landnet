@@ -150,9 +150,9 @@ def get_tuner(
         # ResumeConfig is kind of buggy, should be used with caution
         # It also has wrong type hints, so we need to ignore them
         resume_config = ResumeConfig(
-            finished=ResumeConfig.ResumeType.SKIP,  # type: ignore
-            unfinished=ResumeConfig.ResumeType.RESTART,  # type: ignore
-            errored=ResumeConfig.ResumeType.RESTART,  # type: ignore
+            finished=ResumeConfig.ResumeType.RESUSME,  # type: ignore
+            unfinished=ResumeConfig.ResumeType.RESUME,  # type: ignore
+            errored=ResumeConfig.ResumeType.RESUME,  # type: ignore
         )
         restored = tune.Tuner.restore(
             trial_dir.as_posix(),
