@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import collections.abc as c
 import math
+from pathlib import Path
 
 from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.grids import get_grid_for_variable
@@ -16,6 +17,9 @@ from landnet.modelling.segmentation.dataset import (
     get_weighted_segmentation_dataloader,
 )
 
+DATA_DIR = Path(__file__).parent.parent.parent / 'data'
+GRIDS = DATA_DIR / 'test_variables'
+
 
 def get_concat_landslide_image_segmentation(
     variables: c.Sequence[GeomorphometricalVariable],
@@ -23,9 +27,7 @@ def get_concat_landslide_image_segmentation(
     tile_config = TileConfig(TileSize(100, 100), overlap=5)
     train_grids = [
         get_grid_for_variable(
-            variable,
-            tile_config=tile_config,
-            mode=Mode.TRAIN,
+            variable, tile_config=tile_config, mode=Mode.TEST, dir=GRIDS
         )
         for variable in variables
     ]
@@ -34,7 +36,7 @@ def get_concat_landslide_image_segmentation(
         landslide_images=[
             LandslideImageSegmentation(
                 grid,
-                Mode.TRAIN,
+                Mode.TEST,
                 transform=get_default_transform(),
                 mask_transform=get_default_mask_transform(),
             )
@@ -51,7 +53,7 @@ def test_get_dataloader():
         GeomorphometricalVariable.REAL_SURFACE_AREA,
         GeomorphometricalVariable.PROFILE_CURVATURE,
     ]
-    size = 501
+    size = 21
     batch_size = 5
     dataset = get_concat_landslide_image_segmentation(variables)
     dataloader = get_weighted_segmentation_dataloader(
