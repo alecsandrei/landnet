@@ -99,7 +99,6 @@ class LandslideImageSegmentation(LandslideImages):
 
 def get_weights(dataset: ConcatLandslideImageSegmentation) -> np.ndarray:
     samples_weight = np.zeros(len(dataset))
-    # assert isinstance(dataset, c.Iterable)
     for i in range(len(dataset)):
         image, mask = dataset[i]
         if (

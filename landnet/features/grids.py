@@ -725,10 +725,15 @@ def compute_grids(
 
 
 def get_grid_for_variable(
-    variable: GeomorphometricalVariable, tile_config: TileConfig, mode: Mode
+    variable: GeomorphometricalVariable,
+    tile_config: TileConfig,
+    mode: Mode,
+    dir: Path | None = None,
 ) -> Grid:
+    if dir is None:
+        dir = GRIDS / mode.value
     return Grid(
-        (GRIDS / mode.value / variable.value).with_suffix('.tif'),
+        (dir / variable.value).with_suffix('.tif'),
         tile_config,
         mode=mode,
     )
