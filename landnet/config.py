@@ -44,7 +44,7 @@ LANDSLIDE_DENSITY_THRESHOLD = float(
     os.getenv('LANDSLIDE_DENSITY_THRESHOLD', 0.05)
 )
 ARCHITECTURE = Architecture(os.getenv('ARCHITECTURE', 'resnet50'))
-PRETRAINED = bool(os.getenv('PRETRAINED', 1))
+PRETRAINED = int(os.getenv('PRETRAINED', 1))
 EPOCHS = int(os.getenv('EPOCHS', 5))
 GPUS = int(os.getenv('GPUS', 1))
 CPUS = int(os.getenv('CPUS', 4))
