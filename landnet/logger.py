@@ -4,7 +4,12 @@ import datetime as dt
 import json
 import logging
 import logging.config
-import typing as t
+import sys
+
+if sys.version_info[:2] < (3, 12):
+    import typing_extensions as t
+else:
+    import typing as t
 
 from landnet.config import LOGGING_CONFIG, PROJ_ROOT
 

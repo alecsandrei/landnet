@@ -9,6 +9,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
+from landnet.enums import GeomorphometricalVariable
 from landnet.logger import create_logger
 
 logger = create_logger(__name__)
@@ -49,3 +50,18 @@ def save_fig(path: Path, figure: Figure | None = None) -> None:
         plt.savefig(**kwargs)
     else:
         figure.savefig(**kwargs)
+
+
+def geomorphometrical_variables_from_file(
+    path: Path,
+) -> list[GeomorphometricalVariable]:
+    with path.open(mode='r') as file:
+        return t.cast(
+            list[GeomorphometricalVariable],
+            [
+                GeomorphometricalVariable._member_map_[
+                    variable.strip().split('.')[1]
+                ]
+                for variable in file.readlines()
+            ],
+        )

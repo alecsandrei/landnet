@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import typing as t
 from enum import Enum
+
+if t.TYPE_CHECKING:
+    from pathlib import Path
 
 
 class LandslideClass(Enum):
@@ -52,6 +56,14 @@ class GeomorphometricalVariable(Enum):
     CELL_BALANCE = 'cbl'
     TOPOGRAPHIC_WETNESS_INDEX = 'twi'
     WIND_EXPOSITION_INDEX = 'wind'
+
+    @classmethod
+    def from_file(cls, path: Path) -> list[Enum]:
+        with path.open(mode='r') as file:
+            return [
+                cls._member_map_[variable.strip().split('.')[1]]
+                for variable in file.readlines()
+            ]
 
 
 class Architecture(Enum):
