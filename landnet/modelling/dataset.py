@@ -6,25 +6,21 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
+from torch import Tensor
 from torch.utils.data import Dataset
 from torchvision.transforms.v2 import (
     Compose,
     InterpolationMode,
     Lambda,
-    Normalize,
-    ToTensor,
+    ToDtype,
+    ToImage,
     functional,
 )
 
-from landnet.config import (
-    GRIDS,
-)
 from landnet.enums import Mode
 from landnet.logger import create_logger
 
 if t.TYPE_CHECKING:
-    from torch import Tensor
-
     from landnet.features.grids import Grid
 
 logger = create_logger(__name__)
@@ -45,42 +41,51 @@ class RandomRotateTensor:
     def __init__(self, angles: c.Sequence[int]):
         self.angles = angles
 
-    def __call__(self, *images: Tensor) -> list[Tensor]:
+    def __call__(self, images: Tensor | list[Tensor]) -> list[Tensor]:
+        if isinstance(images, Tensor):
+            images = [images]
         choice = np.random.choice(self.angles)
-        return [functional.rotate(img, int(choice)) for img in images]
+        if choice != 0:
+            images = [
+                functional.rotate(img, int(choice), expand=False)
+                for img in images
+            ]
+        return images
 
 
 class ConsistentVerticalFlip:
     def __init__(self, p=0.5):
         self.p = p
 
-    def __call__(self, *images: Tensor) -> list[Tensor] | tuple[Tensor, ...]:
+    def __call__(self, images: Tensor | list[Tensor]) -> list[Tensor]:
+        if isinstance(images, Tensor):
+            images = [images]
         do_flip = np.random.random() < self.p
-        images_list = list(images)
         if do_flip:
-            images_list = [functional.vflip(img) for img in images_list]
-        return images_list
+            images = [functional.vflip(img) for img in images]
+        return images
 
 
 class ConsistentHorizontalFlip:
     def __init__(self, p=0.5):
         self.p = p
 
-    def __call__(self, *images: Tensor) -> list[Tensor] | tuple[Tensor, ...]:
+    def __call__(self, images: Tensor | list[Tensor]) -> list[Tensor]:
+        if isinstance(images, Tensor):
+            images = [images]
         do_flip = np.random.random() < self.p
-        images_list = list(images)
         if do_flip:
-            images_list = [functional.hflip(img) for img in images_list]
-        return images_list
+            images = [functional.hflip(img) for img in images]
+        return images
 
 
 def get_default_transform(size: int = 224):
     return Compose(
         [
-            ToTensor(),
+            ToImage(),
+            ToDtype(torch.float32, scale=True),
+            Lambda(lambda x: (x - x.amin()) / (x.amax() - x.amin())),
             ResizeTensor([size, size]),
-            Lambda(lambda x: (x - x.min()) / (x.max() - x.min())),
-            Normalize(mean=[0.5], std=[0.5]),
         ]
     )
 
@@ -88,7 +93,7 @@ def get_default_transform(size: int = 224):
 def get_default_mask_transform(size: int = 224):
     return Compose(
         [
-            ToTensor(),
+            ToImage(),
             ResizeTensor([size, size], interpolation=InterpolationMode.NEAREST),
         ]
     )
@@ -113,12 +118,6 @@ class LandslideImages(Dataset):
     transforms: c.Callable[..., torch.Tensor] | None = None
 
     def __post_init__(self) -> None:
-        self.overlap = 0
-        self.mode = (
-            Mode.TRAIN
-            if self.grid.path.is_relative_to(GRIDS / 'train')
-            else Mode.TEST
-        )
         if self.augment_transform is not None:
             logger.debug(
                 'augment_transform parameter was provided for %r'
