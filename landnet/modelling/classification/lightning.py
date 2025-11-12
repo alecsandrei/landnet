@@ -148,9 +148,9 @@ class LandslideImageDataModule(pl.LightningDataModule):
     def train_dataloader(self):
         assert self.train_dataset is not None
         # size = len(self.train_dataset) // 2
-        size = 500
+        size = 1000
         logger.info(
-            'Length of train dataset: %d, using randomly with replacement only %d samples for training.'
+            'Length of train dataset: %d, picking randomly with replacement %d samples for training.'
             % (len(self.train_dataset), size)
         )
         return create_classification_dataloader(
