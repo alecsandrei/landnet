@@ -1,411 +1,166 @@
 from __future__ import annotations
 
 import collections.abc as c
-import pickle
-import typing as t
-from functools import partial
-from pathlib import Path
 
-import matplotlib.pyplot as plt
-import pandas as pd
-import torch
-import torchvision.models
-from matplotlib.colors import ListedColormap
-from PIL import Image
-from sklearn.metrics import RocCurveDisplay
-from torch import nn
-from torch.utils.data import ConcatDataset, DataLoader
-from torchvision.datasets import ImageFolder
+import lightning as L
+from lightning.pytorch.callbacks import ModelCheckpoint
 
-from landnet._vendor.kcn import ConvNeXtKAN, ResNetKAN
-from landnet.config import (
-    ARCHITECTURE,
-    EPOCHS,
-    FIGURES_DIR,
-    GRIDS,
-    MODELS_DIR,
-    NUM_SAMPLES,
-    OVERWRITE,
-    PRETRAINED,
-    TEST_TILES,
-)
-from landnet.enums import LandslideClass
-from landnet.features.grids import GeomorphometricalVariable
-from landnet.features.tiles import (
-    LandslideImages,
-    TileSize,
-    get_default_transform,
-    get_image_folders_for_variable,
-)
+from landnet.config import ARCHITECTURE, EPOCHS, GPUS, OVERLAP, TILE_SIZE
+from landnet.enums import GeomorphometricalVariable, Mode
+from landnet.features.grids import get_grid_for_variable
+from landnet.features.tiles import TileConfig, TileSize
 from landnet.logger import create_logger
-from landnet.modelling.classification.train import (
-    Metrics,
-    device,
-    evaluate_model,
-    one_epoch,
+from landnet.modelling import torch_clear
+from landnet.modelling.classification.dataset import (
+    ConcatLandslideImageClassification,
+    LandslideImageClassification,
 )
+from landnet.modelling.classification.lightning import (
+    LandslideImageClassifier,
+    LandslideImageDataModule,
+)
+from landnet.modelling.classification.models import get_architecture
+from landnet.modelling.dataset import (
+    get_default_augment_transform,
+    get_default_transform,
+)
+from landnet.modelling.tune import MetricSorter
+from landnet.typing import TuneSpace
 
-if t.TYPE_CHECKING:
-    from torchvision.models import AlexNet
+if GPUS:
+    torch_clear()
 
-    from landnet.modelling.classification.train import Result
-
-torch.cuda.empty_cache()
 
 logger = create_logger(__name__)
 
+TRAIN_TILE_CONFIG = TileConfig(TileSize(TILE_SIZE, TILE_SIZE), overlap=OVERLAP)
+TRAIN_MODEL_CONFIG: TuneSpace = {
+    'batch_size': 8,
+    'learning_rate': 3.146057909839248e-05,
+    #'learning_rate': 1e-6,
+    'tile_config': TRAIN_TILE_CONFIG,
+}
 
-TILE_SIZE = TileSize(100, 100)
-BATCH_SIZE = 8
-LEARNING_RATE = 0.000097
-
-
-def pil_loader(path: str, size: tuple[int, int]) -> Image.Image:
-    with open(path, 'rb') as f:
-        return Image.open(f).resize(size)
-
-
-def convnextkan() -> nn.Sequential:
-    weights = None
-    if PRETRAINED:
-        weights = torchvision.models.ConvNeXt_Base_Weights.DEFAULT
-    convnext = torchvision.models.convnext_base(weights=weights)
-    conv_1x1 = nn.Conv2d(1, 3, kernel_size=1, stride=1, padding=0)
-    convnext.classifier[2] = nn.Linear(1024, 1, bias=True)
-    kcn = ConvNeXtKAN(convnext)
-    model = nn.Sequential(conv_1x1, kcn, nn.Sigmoid())
-    model.to(device())
-    return model
+TEST_TILE_CONFIG = TileConfig(TileSize(TILE_SIZE, TILE_SIZE), overlap=0)
+TEST_MODEL_CONFIG: TuneSpace = {
+    'batch_size': 4,
+    'tile_config': TEST_TILE_CONFIG,
+}
 
 
-def alexnet() -> AlexNet:
-    weights = None
-    if PRETRAINED:
-        weights = torchvision.models.AlexNet_Weights.DEFAULT
-    model = torchvision.models.alexnet(weights=weights)
-    conv_1x1 = nn.Conv2d(1, 3, kernel_size=1, stride=1, padding=0)
-    model.features.insert(0, conv_1x1)
-    model.classifier[-1] = nn.Linear(4096, 1, bias=True)
-    model.classifier.append(nn.Sigmoid())
-    model.to(device())
-    return model
-
-
-def resnet50() -> nn.Sequential:
-    weights = None
-    if PRETRAINED:
-        weights = torchvision.models.ResNet50_Weights.DEFAULT
-    model = torchvision.models.resnet50(weights=weights)
-    conv_1x1 = nn.Conv2d(1, 3, kernel_size=1, stride=1, padding=0)
-    model.fc = nn.Linear(2048, 1, bias=True)
-    model = nn.Sequential(conv_1x1, model, nn.Sigmoid())
-    model.to(device())
-    return model
-
-
-def convnext():
-    weights = None
-    if PRETRAINED:
-        weights = torchvision.models.ConvNeXt_Base_Weights.DEFAULT
-    model = torchvision.models.convnext_base(weights=weights)
-    conv_1x1 = nn.Conv2d(1, 3, kernel_size=1, stride=1, padding=0)
-    model.classifier[2] = nn.Linear(1024, 1, bias=True)
-    model = nn.Sequential(conv_1x1, model, nn.Sigmoid())
-    model.to(device())
-    return model
-
-
-def resnet50kan() -> nn.Sequential:
-    weights = None
-    if PRETRAINED:
-        weights = torchvision.models.ResNet50_Weights.DEFAULT
-        logger.info('Set weights to %r' % weights)
-    resnet50 = torchvision.models.resnet50(weights=weights)
-    resnet50.fc = nn.Linear(2048, 1, bias=True)
-    kcn = ResNetKAN(resnet50)
-    conv_1x1 = nn.Conv2d(1, 3, kernel_size=1, stride=1, padding=0)
-    model = nn.Sequential(conv_1x1, kcn, nn.Sigmoid())
-    model.to(device())
-    return model
-
-
-def get_train_datasets(image_folder: LandslideImages):
-    # transform = get_transform()
-    # loader = partial(pil_loader, size=(tile_size.rows, tile_size.columns))
-    train_image_folder: ConcatDataset[LandslideImages] = ConcatDataset(
-        [image_folder]
-    )
-    train_dataset, validation_dataset = torch.utils.data.random_split(
-        train_image_folder, (0.7, 0.3)
-    )
-    return (train_dataset, validation_dataset)
-
-
-def get_train_loaders(
-    image_folder: LandslideImages,
-    batch_size: int,
-) -> tuple[DataLoader, DataLoader]:
-    train_dataset, validation_dataset = get_train_datasets(image_folder)
-    # labels = [
-    #     sample[1] for sample in train_dataset
-    # ]  # Assuming dataset returns (image, label)
-    # class_counts = collections.Counter(labels)
-    # num_samples = len(labels)
-
-    # # Compute class weights
-    # class_weights = {
-    #     cls: num_samples / count for cls, count in class_counts.items()
-    # }
-
-    # # Compute sample weights
-    # sample_weights = [class_weights[label] for label in labels]
-
-    # # Create WeightedRandomSampler
-    # sampler = WeightedRandomSampler(
-    #     sample_weights, num_samples=batch_size, replacement=True
-    # )
-
-    train_loader = DataLoader(
-        train_dataset,
-        # sampler=sampler,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=4,
-        pin_memory=True,
-    )
-    validation_loader = DataLoader(
-        validation_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=4,
-        pin_memory=True,
-    )
-    return (train_loader, validation_loader)
-
-
-def get_tile_number_from_image(image: tuple[str, int]) -> int:
-    return int(''.join(filter(str.isdigit, Path(image[0]).stem)))
-
-
-def get_test_loader(test_folders: Path | c.Sequence[Path], batch_size):
-    if not isinstance(test_folders, c.Sequence):
-        test_folders = [test_folders]
-    loader = partial(pil_loader, size=(100, 100))
-
-    def get_image_folder(folder: Path):
-        image_folder = ImageFolder(
-            folder, get_default_transform(), loader=loader
+def get_datasets(variables: c.Sequence[GeomorphometricalVariable]):
+    train_grids = [
+        get_grid_for_variable(
+            variable,
+            tile_config=TRAIN_TILE_CONFIG,
+            mode=Mode.TRAIN,
         )
-        image_folder.imgs.sort(key=get_tile_number_from_image)
-        return image_folder
-
-    image_folders = [
-        get_image_folder(test_folder) for test_folder in test_folders
+        for variable in variables
     ]
-    test_image_folder: ConcatDataset[ImageFolder] = ConcatDataset(image_folders)
-    return DataLoader(
-        test_image_folder,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=4,
-        pin_memory=True,
-    )
 
-
-def train(grids: Path | c.Sequence[Path]):
-    if not isinstance(grids, c.Sequence):
-        grids = [grids]
-    logger.info('Starting %s' % [grid.stem for grid in grids])
-    image_folders = [
-        get_image_folders_for_variable(
-            GeomorphometricalVariable(grid.stem), TILE_SIZE
+    validation_grids = [
+        get_grid_for_variable(
+            variable,
+            tile_config=TEST_TILE_CONFIG,
+            mode=Mode.VALIDATION,
         )
-        for grid in grids
+        for variable in variables
     ]
-    train_loader, validation_loader = get_train_loaders(
-        image_folders[0][1]['train'], BATCH_SIZE
-    )
-    model: nn.Module = MODEL()
-    loss_fn = nn.BCELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    for epoch in range(EPOCHS):
-        result = one_epoch(
-            model,
-            train_loader,
-            validation_loader,
-            loss_fn,
-            optimizer,
-        )
 
-        metrics = result.validation.metrics()
-        print(
-            {
-                'loss': result.validation.loss,
-                'f1_score': metrics.f1_score,
-                'specificity': metrics.specificity,
-                'sensitivity': metrics.sensitivity,
-                'accuracy': metrics.accuracy,
-            }
-        )
-
-
-def train_models():
-    # folders = zip(
-    #     [path for path in TRAIN_TILES.iterdir() if path.is_dir()],
-    #     [path for path in TEST_TILES.iterdir() if path.is_dir()],
-    # )
-
-    train_grids = GRIDS / 'train'
-    test_grids = GRIDS / 'test'
-    grids = ['slope']
-    for train_grid in train_grids.glob('*.tif'):
-        if train_grid.stem not in grids:
-            continue
-        test_grid = test_grids / train_grid.name
-        out_name = MODELS_DIR / f'{train_grid.stem}_{ARCHITECTURE}'
-        if (
-            not OVERWRITE
-            and out_name.with_suffix('.pt').exists()
-            and out_name.with_suffix('.csv').exists()
-        ):
-            continue
-
-        train(train_grid)
-
-
-def save_fig(path: Path) -> None:
-    plt.savefig(
-        path,
-        transparent=True,
-        dpi=600,
-        bbox_inches='tight',
-    )
-
-
-def save_confusion_matrix(
-    result: Result, display_labels: tuple[str, str], out_fig: Path
-):
-    import numpy as np
-    import seaborn as sns
-
-    array = result.confusion_matrix()
-    array_labels = np.array([[0, 1], [2, 3]])
-    cmap = ListedColormap(
-        [
-            '#fe0d00',  # Color 2
-            '#ffe101',  # Color 3
-            '#5fa2ff',  # Color 1
-            '#1eb316',  # Color 4
-        ]
-    )
-
-    df_cm = pd.DataFrame(
-        array_labels, index=display_labels, columns=display_labels
-    )
-    # Plot the heatmap
-    plt.figure(figsize=(10, 7))
-    sns.heatmap(
-        df_cm,
-        square=True,
-        annot=array,
-        cmap=cmap,
-        cbar=False,
-        # xticklabels=False,
-        # yticklabels=False,
-        fmt='d',
-        annot_kws={'size': 40},
-    )
-    plt.xticks(fontsize=30)
-    plt.yticks(fontsize=30)
-
-    # Set axis labels
-    plt.xlabel('Prediction label', fontsize=40)
-    plt.ylabel('True label', fontsize=40)
-
-    # Save the figure
-    save_fig(out_fig)
-    plt.close()
-
-
-def save_roc_curve(result: Result, out_fig: Path):
-    fig = RocCurveDisplay.from_predictions(result.true, result.logits)
-    fig.plot(
-        plot_chance_level=True,
-        linewidth=5,
-        c='navy',
-        chance_level_kw={'linewidth': 5},
-    )
-    save_fig(out_fig)
-    plt.close()
-
-
-def evaluate_models():
-    df_test_results_metrics = pd.DataFrame()
-    df_test_results_labels = pd.DataFrame()
-    for model_path in list(MODELS_DIR.glob(f'*{ARCHITECTURE}.pt'))[::-1]:
-        df = pd.read_csv(
-            (model_path.parent / model_path.stem).with_suffix('.csv')
-        )
-        if not df.shape[0] == NUM_SAMPLES:
-            print(model_path, 'failed', df.shape[0])
-            continue
-        batch_size = int(df.sort_values(by='loss').iloc[0]['config/batch_size'])
-        with open(model_path, 'rb') as fp:
-            best_checkpoint_data = pickle.load(fp)
-        model: nn.Module = MODEL()
-        model.load_state_dict(best_checkpoint_data['net_state_dict'])
-        test_loader = get_test_loader(
-            TEST_TILES / model_path.stem.replace(f'_{ARCHITECTURE}', ''),
-            batch_size,
-        )
-        test_results = evaluate_model(
-            model,
-            test_loader,
-            nn.BCELoss(),
-        )
-        save_confusion_matrix(
-            test_results,
-            display_labels=(
-                LandslideClass.NO_LANDSLIDE.name.replace('_', ' ').capitalize(),
-                LandslideClass.LANDSLIDE.name.capitalize(),
-            ),
-            out_fig=(FIGURES_DIR / f'cm_{model_path.stem}').with_suffix('.png'),
-        )
-        save_roc_curve(
-            test_results,
-            out_fig=(FIGURES_DIR / f'roc_{model_path.stem}').with_suffix(
-                '.png'
-            ),
-        )
-        if 'true' not in df_test_results_labels:
-            df_test_results_labels['true'] = test_results.true
-        metrics = test_results.metrics()
-        df_test_results_labels[f'pred_{model_path.stem}'] = test_results.pred
-        df_test_results_labels[f'pred_{model_path.stem}_logits'] = (
-            test_results.logits
-        )
-        df_test_results_labels[f'pred_{model_path.stem}_confusion'] = (
-            test_results.binary_classification_labels()
-        )
-        df_test_results_metrics.loc[model_path.stem, Metrics._fields] = list(
-            metrics
-        )
-        df_test_results_metrics.loc[model_path.stem, 'loss'] = test_results.loss
-
-        print(
-            'Best test set accuracy for model {}: {}'.format(
-                model_path.stem, metrics.formatted()
+    train_dataset = ConcatLandslideImageClassification(
+        landslide_images=[
+            LandslideImageClassification(
+                grid,
+                Mode.TRAIN,
+                transform=get_default_transform(),
             )
+            for grid in train_grids
+        ],
+        augment_transform=get_default_augment_transform(),
+        # augment_transform=None,
+    )
+
+    validation_dataset = ConcatLandslideImageClassification(
+        landslide_images=[
+            LandslideImageClassification(
+                grid,
+                Mode.VALIDATION,
+                transform=get_default_transform(),
+            )
+            for grid in validation_grids
+        ],
+        augment_transform=None,
+    )
+
+    test_grids = [
+        get_grid_for_variable(
+            variable,
+            tile_config=TEST_TILE_CONFIG,
+            mode=Mode.TEST,
         )
-    df_test_results_metrics.to_csv(
-        MODELS_DIR / f'{ARCHITECTURE}_test_results.csv'
+        for variable in variables
+    ]
+    test_dataset = ConcatLandslideImageClassification(
+        landslide_images=[
+            LandslideImageClassification(
+                grid,
+                Mode.TEST,
+                transform=get_default_transform(),
+            )
+            for grid in test_grids
+        ],
+        augment_transform=None,
     )
-    df_test_results_labels.to_csv(
-        MODELS_DIR / f'{ARCHITECTURE}_test_labels.csv'
+    return (train_dataset, validation_dataset, test_dataset)
+
+
+def train_cnn(variables: c.Sequence[GeomorphometricalVariable]):  # type: ignore
+    sorter = MetricSorter('val_f2_score', 'max')
+    train_dataset, validation_dataset, test_dataset = get_datasets(variables)
+    dm = LandslideImageDataModule(
+        TRAIN_MODEL_CONFIG,
+        train_dataset=train_dataset,
+        validation_dataset=validation_dataset,
+        test_dataset=test_dataset,
+        variables=variables,
     )
+    architecture = get_architecture(ARCHITECTURE)
+    model = architecture(len(variables), Mode.TRAIN)
+    model = LandslideImageClassifier(model=model, config=TRAIN_MODEL_CONFIG)
+    checkpoint_callback = ModelCheckpoint(
+        verbose=True, save_top_k=1, mode=sorter.mode, monitor=sorter.metric
+    )
+    trainer = L.Trainer(
+        # enable_checkpointing=True,
+        # callbacks=[EarlyStopping(monitor='val_mIoU', mode='max', patience=5)],
+        callbacks=[checkpoint_callback],
+        max_epochs=EPOCHS,
+    )
+
+    trainer.fit(model, datamodule=dm)
+    checkpoint = checkpoint_callback.best_model_path
+    result = trainer.test(
+        model, datamodule=dm, ckpt_path=checkpoint, verbose=True
+    )
+    logger.info(result)
 
 
 if __name__ == '__main__':
-    MODEL = locals()[ARCHITECTURE]
-    train_models()
-    # evaluate_models()
+    variables_1 = [
+        GeomorphometricalVariable('cgene'),
+        GeomorphometricalVariable('clo'),
+        GeomorphometricalVariable('slope'),
+        GeomorphometricalVariable('shade'),
+        GeomorphometricalVariable('cdl'),
+        GeomorphometricalVariable('wind'),
+        GeomorphometricalVariable('cprof'),
+        GeomorphometricalVariable('vld'),
+        GeomorphometricalVariable('tri'),
+        GeomorphometricalVariable('clong'),
+        GeomorphometricalVariable('tpi'),
+    ]
+    variables_2 = [
+        GeomorphometricalVariable('slope'),
+    ]
+    train_cnn(variables_1)
+    train_cnn(variables_2)
