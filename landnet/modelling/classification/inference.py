@@ -5,6 +5,7 @@ import concurrent.futures
 import os
 import typing as t
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 import geopandas as gpd
@@ -49,25 +50,25 @@ if t.TYPE_CHECKING:
 logger = create_logger(__name__)
 
 
+@cache
+def get_landslide_images(
+    variable: GeomorphometricalVariable,
+    tile_config: TileConfig,
+    mode: Mode,
+    landslide_density_threshold: float = LANDSLIDE_DENSITY_THRESHOLD,
+) -> LandslideImageClassification:
+    grid = (GRIDS / mode.value / variable.value).with_suffix('.tif')
+    return LandslideImageClassification(
+        Grid(grid, tile_config, mode=mode),
+        mode=mode,
+        landslide_density_threshold=landslide_density_threshold,
+    )
+
+
 @dataclass
 class InferTrainTest:
     variables: c.Sequence[GeomorphometricalVariable]
     out_dir: Path
-
-    @staticmethod
-    def _get_landslide_images(
-        variable: GeomorphometricalVariable,
-        tune_space: TuneSpace,
-        mode: Mode,
-        landslide_density_threshold: float = LANDSLIDE_DENSITY_THRESHOLD,
-    ) -> LandslideImageClassification:
-        grid = (GRIDS / mode.value / variable.value).with_suffix('.tif')
-        tile_config = TileConfig(tune_space['tile_config'].size, 0)
-        return LandslideImageClassification(
-            Grid(grid, tile_config, mode=mode),
-            mode=mode,
-            landslide_density_threshold=landslide_density_threshold,
-        )
 
     def _get_predictions(
         self, classifier: LandslideImageClassifier, dataloader: DataLoader
@@ -128,7 +129,7 @@ class InferTrainTest:
     def _export_predictions(
         self, logits: torch.Tensor, y: torch.Tensor, mode: Mode, grid: Grid
     ) -> None:
-        out_dir = self.out_dir / 'predictions' / mode.value
+        out_dir = self.out_dir / mode.value
         os.makedirs(out_dir, exist_ok=True)
         logits_np, y_np = (
             logits.cpu().numpy(),
@@ -144,9 +145,10 @@ class InferTrainTest:
         mode: Mode,
         tune_space: TuneSpace,
     ) -> None:
+        tile_config = TileConfig(tune_space['tile_config'].size, 0)
         images = ConcatLandslideImageClassification(
             [
-                self._get_landslide_images(variable, tune_space, mode)
+                get_landslide_images(variable, tile_config, mode)
                 for variable in self.variables
             ]
         )
@@ -165,7 +167,10 @@ class InferTrainTest:
         )
 
     def handle_checkpoint(
-        self, checkpoint_path: os.PathLike | str, tune_space: TuneSpace
+        self,
+        checkpoint_path: os.PathLike | str,
+        tune_space: TuneSpace,
+        modes: tuple[Mode, ...] = (Mode.TEST,),
     ) -> None:
         torch_clear()
         tune_space_copy = tune_space.copy()
@@ -181,8 +186,7 @@ class InferTrainTest:
         logger.debug(
             'Loaded classifier with model architecture %s' % ARCHITECTURE
         )
-        for mode in (Mode.TRAIN, Mode.TEST, Mode.VALIDATION):
-            # for mode in (Mode.VALIDATION,):
+        for mode in modes:
             self._handle_mode(classifier, mode, tune_space)
 
 
