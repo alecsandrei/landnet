@@ -89,40 +89,59 @@ class ResNet50Builder(ModelBuilder):
             model.fc = layer
         return model
 
+    def _adapt_input_channels(self, model: ResNet, in_channels: int) -> ResNet:
+        model.conv1 = nn.Conv2d(
+            in_channels,
+            64,
+            kernel_size=7,
+            stride=2,
+            padding=3,
+            bias=False,
+        )
+        return model
+
 
 class ConvNextBuilder(ModelBuilder):
     def __init__(self):
         super().__init__(
-            model=torchvision.models.convnext_base,
-            weights=torchvision.models.ConvNeXt_Base_Weights.DEFAULT
+            model=torchvision.models.convnext_tiny,
+            weights=torchvision.models.ConvNeXt_Tiny_Weights.DEFAULT
             if PRETRAINED
             else None,
         )
 
-    # def _adapt_input_channels(
-    #     self, model: M, in_channels: int
-    # ) -> nn.Sequential | M:
-    #     model.features[0][0] = nn.Conv2d(
-    #         in_channels,
-    #         128,
-    #         4,
-    #         4,
-    #         0,
-    #         dilation=1,
-    #         groups=1,
-    #         bias=True,
-    #     )
-    #     return model
-    # return super()._adapt_input_channels(model, in_channels)
+    def _adapt_input_channels(
+        self, model: M, in_channels: int
+    ) -> nn.Sequential | M:
+        current = model.features[0][0]
+        new = nn.Conv2d(
+            in_channels,
+            out_channels=current.out_channels,
+            kernel_size=current.kernel_size,
+            stride=current.stride,
+            padding=current.padding,
+            dilation=current.dilation,
+            groups=current.groups,
+            bias=True,
+            padding_mode=current.padding_mode,
+        )
+
+        model.features[0][0] = new
+        return model
 
     def _adapt_output_features(self, model: M) -> M:
-        layer = nn.Linear(1024, self.out_features, bias=True)
         if isinstance(model, nn.Sequential):
             assert isinstance(model[1], ConvNeXt)
             convnext = model[1]
             assert isinstance(convnext, ConvNeXt)
+            layer = nn.Linear(
+                convnext.classifier[2].in_features, self.out_features, bias=True
+            )
             convnext.classifier[2] = layer
         if isinstance(model, ConvNeXt):
+            layer = nn.Linear(
+                model.classifier[2].in_features, self.out_features, bias=True
+            )
             model.classifier[2] = layer
         return model
 
