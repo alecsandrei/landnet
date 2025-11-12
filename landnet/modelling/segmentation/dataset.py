@@ -13,8 +13,9 @@ from torch.utils.data import (
     WeightedRandomSampler,
 )
 
+from landnet import TORCH_GEN
 from landnet.config import LANDSLIDE_DENSITY_THRESHOLD
-from landnet.enums import LandslideClass, Mode
+from landnet.enums import Mode
 from landnet.logger import create_logger
 from landnet.modelling.dataset import (
     LandslideImages,
@@ -24,10 +25,6 @@ from landnet.modelling.dataset import (
 if t.TYPE_CHECKING:
     import collections.abc as c
 
-DEFAULT_CLASS_BALANCE = {
-    LandslideClass.NO_LANDSLIDE: 0.3,
-    LandslideClass.LANDSLIDE: 0.7,
-}
 
 logger = create_logger(__name__)
 
@@ -52,7 +49,7 @@ class ConcatLandslideImageSegmentation(Dataset):
         images = [images[0] for images in image_batch]
         mask = image_batch[0][1]
         if self.augment_transform is not None:
-            mask, *images = self.augment_transform(mask, *images)
+            mask, *images = self.augment_transform([mask] + images)
         cat = torch.cat(images, dim=0)
         return (cat, mask)
 
@@ -121,9 +118,14 @@ def get_weighted_segmentation_dataloader(
     dataset: ConcatLandslideImageSegmentation, size: int, **kwargs
 ) -> DataLoader:
     sampler = WeightedRandomSampler(
-        get_weights(dataset).tolist(), num_samples=size, replacement=True
+        get_weights(dataset).tolist(),
+        num_samples=size,
+        replacement=True,
+        generator=TORCH_GEN,
     )
-    dataloader = DataLoader(dataset, **kwargs, sampler=sampler)
+    dataloader = DataLoader(
+        dataset, generator=TORCH_GEN, **kwargs, sampler=sampler
+    )
     return dataloader
 
 
@@ -132,6 +134,9 @@ def get_segmentation_dataloader(dataset: Dataset, size: int, **kwargs):
         data_source=dataset,  # type: ignore
         num_samples=size,
         replacement=True,
+        generator=TORCH_GEN,
     )
-    dataloader = DataLoader(dataset, **kwargs, sampler=sampler)
+    dataloader = DataLoader(
+        dataset, generator=TORCH_GEN, **kwargs, sampler=sampler
+    )
     return dataloader
