@@ -56,7 +56,6 @@ class SaveTrial(tune.Callback):
         super().__init__(**kwargs)
 
     def _get_best_result(self, trials: t.List[Trial]):
-        # trials[0].local_experiment_path
         analysis = ExperimentAnalysis(
             trials[0].local_experiment_path,
             trials=trials,
@@ -87,8 +86,6 @@ class SaveTrial(tune.Callback):
         )
 
     def on_experiment_end(self, trials: list[Trial], **info):
-        # if len(trials) == 1:
-        #     return None
         result = self._get_best_result(trials)
 
         assert result.config is not None
