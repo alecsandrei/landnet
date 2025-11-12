@@ -9,6 +9,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from landnet import seed_worker
+from landnet.config import BATCH_SIZE
 from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.grids import get_grid_for_variable
 from landnet.logger import create_logger
@@ -297,7 +298,7 @@ class LandslideImageSegmentationDataModule(pl.LightningDataModule):
         assert self.validation_dataset is not None
         data_loader = DataLoader(
             self.validation_dataset,
-            batch_size=self.config['batch_size'],
+            batch_size=BATCH_SIZE,
             num_workers=4,
             shuffle=False,
             pin_memory=True,
@@ -308,7 +309,7 @@ class LandslideImageSegmentationDataModule(pl.LightningDataModule):
         assert self.test_dataset is not None
         return DataLoader(
             self.test_dataset,
-            batch_size=self.config['batch_size'],
+            batch_size=BATCH_SIZE,
             num_workers=4,
             shuffle=False,
             pin_memory=True,
