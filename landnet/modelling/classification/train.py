@@ -138,7 +138,7 @@ def train_func(
         config,
         train_dataset=train_dataset,
         validation_dataset=validation_dataset,
-        # test_dataset=test_dataset,
+        test_dataset=test_dataset,
         variables=variables,
     )
     model = model(len(variables), Mode.TRAIN)
