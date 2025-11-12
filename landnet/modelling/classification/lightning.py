@@ -8,7 +8,8 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from landnet.config import DEFAULT_CLASS_BALANCE
+from landnet import seed_worker
+from landnet.config import BATCH_SIZE, DEFAULT_CLASS_BALANCE
 from landnet.enums import GeomorphometricalVariable
 from landnet.logger import create_logger
 from landnet.modelling.classification.dataset import (
@@ -160,6 +161,7 @@ class LandslideImageDataModule(pl.LightningDataModule):
             persistent_workers=True,  # Keeps workers alive
             class_balance=DEFAULT_CLASS_BALANCE,
             pin_memory=True,
+            worker_init_fn=seed_worker,
             size=size,
         )
 
@@ -167,7 +169,7 @@ class LandslideImageDataModule(pl.LightningDataModule):
         assert self.validation_dataset is not None
         return DataLoader(
             self.validation_dataset,
-            batch_size=self.config['batch_size'],
+            batch_size=BATCH_SIZE,
             num_workers=4,
             shuffle=False,
             pin_memory=True,
@@ -177,7 +179,7 @@ class LandslideImageDataModule(pl.LightningDataModule):
         assert self.test_dataset is not None
         return DataLoader(
             self.test_dataset,
-            batch_size=self.config['batch_size'],
+            batch_size=BATCH_SIZE,
             num_workers=4,
             shuffle=False,
             pin_memory=True,
