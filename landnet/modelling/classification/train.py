@@ -188,6 +188,7 @@ class LandslideImageClassificationCacher:
         variable: GeomorphometricalVariable,
         tile_config: TileConfig,
         mode: Mode,
+        augment_transform: nn.Module | None = None,
     ) -> LandslideImageClassification:
         map_ = self.map.setdefault(tile_config.size, {}).setdefault(
             variable, {}
