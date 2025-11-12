@@ -40,11 +40,7 @@ def conv1x1(in_channels, out_channels) -> nn.Conv2d:
     )
 
 
-M = t.TypeVar('M', bound=nn.Module)
-T = t.TypeVar('T', bound=nn.Module)
-
-
-class AlexNetBuilder(ModelBuilder):
+class AlexNetBuilder(ModelBuilder[AlexNet]):
     def __init__(self):
         super().__init__(
             model=torchvision.models.alexnet,
@@ -55,20 +51,14 @@ class AlexNetBuilder(ModelBuilder):
 
     def _adapt_input_channels(
         self, model: AlexNet, in_channels: int
-    ) -> nn.Sequential | M:
+    ) -> AlexNet:
         conv1 = nn.Conv2d(in_channels, 64, kernel_size=11, stride=4, padding=2)
         model.features[0] = conv1
         return model
 
-    def _adapt_output_features(self, model: AlexNet | nn.Sequential) -> AlexNet:
+    def _adapt_output_features(self, model: AlexNet) -> AlexNet:
         layer = nn.Linear(4096, self.out_features, bias=True)
-        if isinstance(model, nn.Sequential):
-            assert isinstance(model[1], AlexNet)
-            alexnet = model[1]
-            assert isinstance(alexnet, AlexNet)
-            alexnet.classifier[-1] = layer
-        if isinstance(model, AlexNet):
-            model.classifier[-1] = layer
+        model.classifier[-1] = layer
         return model
 
     def _finalize_model(self, model: AlexNet) -> AlexNet:
@@ -76,7 +66,7 @@ class AlexNetBuilder(ModelBuilder):
         return model
 
 
-class ResNet50Builder(ModelBuilder):
+class ResNet50Builder(ModelBuilder[ResNet]):
     def __init__(self):
         super().__init__(
             model=torchvision.models.resnet50,
@@ -87,13 +77,7 @@ class ResNet50Builder(ModelBuilder):
 
     def _adapt_output_features(self, model: ResNet) -> ResNet:
         layer = nn.Linear(2048, self.out_features, bias=True)
-        if isinstance(model, nn.Sequential):
-            assert isinstance(model[1], ResNet)
-            resnet50 = model[1]
-            assert isinstance(resnet50, ResNet)
-            resnet50.fc = layer
-        if isinstance(model, ResNet):
-            model.fc = layer
+        model.fc = layer
         return model
 
     def _adapt_input_channels(self, model: ResNet, in_channels: int) -> ResNet:
@@ -108,7 +92,7 @@ class ResNet50Builder(ModelBuilder):
         return model
 
 
-class ConvNextBuilder(ModelBuilder):
+class ConvNextBuilder(ModelBuilder[ConvNeXt]):
     def __init__(self):
         super().__init__(
             model=torchvision.models.convnext_tiny,
@@ -118,8 +102,8 @@ class ConvNextBuilder(ModelBuilder):
         )
 
     def _adapt_input_channels(
-        self, model: M, in_channels: int
-    ) -> nn.Sequential | M:
+        self, model: ConvNeXt, in_channels: int
+    ) -> ConvNeXt:
         current = model.features[0][0]
         new = nn.Conv2d(
             in_channels,
@@ -136,20 +120,11 @@ class ConvNextBuilder(ModelBuilder):
         model.features[0][0] = new
         return model
 
-    def _adapt_output_features(self, model: M) -> M:
-        if isinstance(model, nn.Sequential):
-            assert isinstance(model[1], ConvNeXt)
-            convnext = model[1]
-            assert isinstance(convnext, ConvNeXt)
-            layer = nn.Linear(
-                convnext.classifier[2].in_features, self.out_features, bias=True
-            )
-            convnext.classifier[2] = layer
-        if isinstance(model, ConvNeXt):
-            layer = nn.Linear(
-                model.classifier[2].in_features, self.out_features, bias=True
-            )
-            model.classifier[2] = layer
+    def _adapt_output_features(self, model: ConvNeXt) -> ConvNeXt:
+        layer = nn.Linear(
+            model.classifier[2].in_features, self.out_features, bias=True
+        )
+        model.classifier[2] = layer
         return model
 
 
@@ -284,89 +259,3 @@ class PCAConcatDataset(Dataset):
         Return the PCA-reduced image.
         """
         return self.reduced_data[index]
-
-
-# class CNBlock(nn.Module):
-#     def __init__(
-#         self,
-#         dim,
-#         layer_scale: float,
-#         stochastic_depth_prob: float,
-#         norm_layer: c.Callable[..., nn.Module] | None = None,
-#     ) -> None:
-#         super().__init__()
-#         if norm_layer is None:
-#             norm_layer = partial(nn.LayerNorm, eps=1e-6)
-#         self.conv1 = nn.Conv2d(
-#             dim, dim, kernel_size=7, padding=3, groups=dim, bias=True
-#         )
-#         self.perm1 = Permute([0, 2, 3, 1])
-#         self.norm_layer = norm_layer(dim)
-#         self.linear1 = nn.Linear(
-#             in_features=dim, out_features=4 * dim, bias=True
-#         )
-#         self.act = nn.GELU()
-#         self.perm2 = Permute([0, 3, 1, 2])
-#         self.ca = ChannelAttention(4 * dim)
-#         self.sa = SpatialAttention()
-#         self.perm3 = Permute([0, 2, 3, 1])
-#         self.linear2 = nn.Linear(
-#             in_features=4 * dim, out_features=dim, bias=True
-#         )
-#         self.perm4 = Permute([0, 3, 1, 2])
-#         self.layer_scale = nn.Parameter(torch.ones(dim, 1, 1) * layer_scale)
-#         self.stochastic_depth = StochasticDepth(stochastic_depth_prob, 'row')
-
-#     def forward(self, input: torch.Tensor) -> torch.Tensor:
-#         x = self.conv1(input)
-#         x = self.perm1(x)
-#         x = self.norm_layer(x)
-#         x = self.linear1(x)
-#         x = self.act(x)
-#         x = self.perm2(x)
-#         x = x * self.ca(x)
-#         x = x * self.sa(x)
-#         x = self.perm3(x)
-#         x = self.linear2(x)
-#         x = self.perm4(x)
-#         result = self.layer_scale * x
-#         result = self.stochastic_depth(result)
-#         result += input
-#         return result
-
-
-# class ChannelAttention(nn.Module):
-#     def __init__(self, in_planes, ratio=16):
-#         super(ChannelAttention, self).__init__()
-#         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-#         self.max_pool = nn.AdaptiveMaxPool2d(1)
-
-#         self.fc = nn.Sequential(
-#             nn.Conv2d(in_planes, in_planes // ratio, 1, bias=False),
-#             nn.ReLU(),
-#             nn.Conv2d(in_planes // ratio, in_planes, 1, bias=False),
-#         )
-#         self.sigmoid = nn.Sigmoid()
-
-#     def forward(self, x):
-#         avg_out = self.fc(self.avg_pool(x))
-#         max_out = self.fc(self.max_pool(x))
-#         out = avg_out + max_out
-#         return self.sigmoid(out)
-
-
-# class SpatialAttention(nn.Module):
-#     def __init__(self, kernel_size=7):
-#         super(SpatialAttention, self).__init__()
-
-#         self.conv1 = nn.Conv2d(
-#             2, 1, kernel_size, padding=kernel_size // 2, bias=False
-#         )
-#         self.sigmoid = nn.Sigmoid()
-
-#     def forward(self, x):
-#         avg_out = torch.mean(x, dim=1, keepdim=True)
-#         max_out, _ = torch.max(x, dim=1, keepdim=True)
-#         x = torch.cat([avg_out, max_out], dim=1)
-#         x = self.conv1(x)
-#         return self.sigmoid(x)
