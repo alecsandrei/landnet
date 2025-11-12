@@ -131,7 +131,7 @@ def train_func(
     model: c.Callable[[int, Mode], nn.Module],
     **kwargs,
 ):
-    train_dataset, validation_dataset, test_dataset = get_datsets_from_cacher(
+    train_dataset, validation_dataset, test_dataset = get_datasets_from_cacher(
         landslide_images_cacher, config, variables, return_test=False
     )
     dm = LandslideImageDataModule(
@@ -218,38 +218,45 @@ class LandslideImageClassificationCacher:
         return self.map
 
 
-def get_datsets_from_cacher(
+def get_datasets_from_cacher(
     cacher: ray.ObjectRef[LandslideImageClassificationCacher],  # type: ignore
     config: TuneSpace,
     variables: c.Sequence[GeomorphometricalVariable],
     return_test: bool = True,
 ) -> ClassificationTrainTestValidation:
+    augment_transform = (
+        get_default_augment_transform() if len(variables) == 1 else None
+    )
     train = ray.get(
         [
             cacher.setdefault.remote(  # type: ignore
-                variable, config['tile_config'], Mode.TRAIN
+                variable,
+                config['tile_config'],
+                Mode.TRAIN,
+                augment_transform=augment_transform,
             )
             for variable in variables
         ]
     )
     test_dataset = None
-    if return_test:
-        test = ray.get(
-            [
-                cacher.setdefault.remote(  # type: ignore
-                    variable, config['tile_config'], Mode.TEST
-                )
-                for variable in variables
-            ]
-        )
+    tile_config_test = TileConfig(config['tile_config'].size, overlap=0)
     validation = ray.get(
         [
             cacher.setdefault.remote(  # type: ignore
-                variable, config['tile_config'], Mode.VALIDATION
+                variable, tile_config_test, Mode.VALIDATION
             )
             for variable in variables
         ]
     )
+    if return_test:
+        test = ray.get(
+            [
+                cacher.setdefault.remote(  # type: ignore
+                    variable, tile_config_test, Mode.TEST
+                )
+                for variable in variables
+            ]
+        )
     if len(variables) > 1:
         train_dataset = ConcatLandslideImageClassification(
             train, augment_transform=get_default_augment_transform()
