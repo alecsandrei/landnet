@@ -196,9 +196,6 @@ class LandslideImageClassificationCacher:
         if mode not in map_:
             logger.info('%r' % mode)
             grid = get_grid_for_variable(variable, tile_config, mode)
-            augment_transform = None
-            if mode is Mode.TRAIN:
-                augment_transform = get_default_augment_transform()
             map_[mode] = LandslideImageClassification(
                 grid, mode, augment_transform=augment_transform
             )
