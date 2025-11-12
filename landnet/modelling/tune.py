@@ -63,7 +63,9 @@ class SaveTrial(tune.Callback):
             default_mode=self.sorter.mode,
         )
         results = tune.ResultGrid(analysis)
-        return results.get_best_result(scope='all')
+        return results.get_best_result(
+            metric=self.sorter.metric, mode=self.sorter.mode, scope='all'
+        )
 
     def get_best_checkpoint(self, result: Result) -> Path:
         ckpt = t.cast(
