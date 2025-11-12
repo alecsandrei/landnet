@@ -53,6 +53,13 @@ class AlexNetBuilder(ModelBuilder):
             else None,
         )
 
+    def _adapt_input_channels(
+        self, model: AlexNet, in_channels: int
+    ) -> nn.Sequential | M:
+        conv1 = nn.Conv2d(in_channels, 64, kernel_size=11, stride=4, padding=2)
+        model.features[0] = conv1
+        return model
+
     def _adapt_output_features(self, model: AlexNet | nn.Sequential) -> AlexNet:
         layer = nn.Linear(4096, self.out_features, bias=True)
         if isinstance(model, nn.Sequential):
