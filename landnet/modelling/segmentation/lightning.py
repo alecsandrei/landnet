@@ -8,6 +8,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
+from landnet import seed_worker
 from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.grids import get_grid_for_variable
 from landnet.logger import create_logger
@@ -284,6 +285,7 @@ class LandslideImageSegmentationDataModule(pl.LightningDataModule):
             prefetch_factor=4,  # Load 4 batches ahead
             persistent_workers=True,  # Keeps workers alive
             pin_memory=True,
+            worker_init_fn=seed_worker,
         )
 
     def val_dataloader(self):
