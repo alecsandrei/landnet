@@ -18,11 +18,7 @@ if t.TYPE_CHECKING:
 logger = create_logger(__name__)
 
 
-T = t.TypeVar('T', bound=nn.Module)
-M = t.TypeVar('M', bound=nn.Module)
-
-
-class ModelBuilder(ABC, t.Generic[T]):
+class ModelBuilder[T: nn.Module](ABC):
     """Base class for building models with common functionality."""
 
     def __init__(
@@ -49,27 +45,33 @@ class ModelBuilder(ABC, t.Generic[T]):
     def build(self, in_channels: int, mode: Mode):
         """Build the model with the specified input channels and mode."""
         model = self._get_model(mode)
+        model = self._configure_model(model)
 
         with_adapted_input = self._adapt_input_channels(model, in_channels)
-        # with_adapted_input = model
         with_adapted_output = self._adapt_output_features(with_adapted_input)
 
         return self._finalize_model(with_adapted_output)
 
+    def _configure_model[M: nn.Module](self, model: M) -> M:
+        return model
+
     def _adapt_input_channels(
-        self, model: M, in_channels: int
-    ) -> nn.Sequential | M:
+        self, model: T, in_channels: int
+    ) -> nn.Sequential | T:
         """Adapt the model for the specified number of input channels."""
         if in_channels == 3:
             return model
-        logger.debug('Adapting model input channels from %d to 3', in_channels)
+        logger.debug(
+            'Reducing model input channels from %d to 3 with a conv1x1',
+            in_channels,
+        )
         return nn.Sequential(self._create_conv1x1(in_channels, 3), model)
 
     @abstractmethod
-    def _adapt_output_features(self, model: M) -> M:
+    def _adapt_output_features[M: nn.Module](self, model: M) -> M:
         """Override in subclasses to adapt the output layer."""
 
-    def _finalize_model(self, model: M) -> M:
+    def _finalize_model[M: nn.Module](self, model: M) -> M:
         """Final processing before returning the model."""
         return model
 
@@ -94,7 +96,7 @@ class ModelBuilder(ABC, t.Generic[T]):
         )
 
 
-def read_legacy_checkpoint(model: T, checkpoint: Path) -> T:
+def read_legacy_checkpoint[T: nn.Module](model: T, checkpoint: Path) -> T:
     with checkpoint.open(mode='rb') as fp:
         model_data = pickle.load(fp)
     model.load_state_dict(model_data['net_state_dict'], strict=False)
