@@ -7,7 +7,7 @@ from pathlib import Path
 from ray import train, tune
 from ray.train import Checkpoint, CheckpointConfig
 from ray.train.torch import TorchTrainer
-from ray.tune import ExperimentAnalysis, Result, ResumeConfig
+from ray.tune import ExperimentAnalysis, Result
 from ray.tune.experiment import Trial
 from ray.tune.search.hyperopt import HyperOptSearch
 
@@ -124,24 +124,15 @@ def get_tuner(
         }
 
     if tune.Tuner.can_restore(trial_dir):
-        # ResumeConfig is kind of buggy, should be used with caution
-        # It also has wrong type hints, so we need to ignore them
-        resume_config = ResumeConfig(
-            finished=ResumeConfig.ResumeType.RESUSME,  # type: ignore
-            unfinished=ResumeConfig.ResumeType.RESUME,  # type: ignore
-            errored=ResumeConfig.ResumeType.RESUME,  # type: ignore
-        )
-        restored = tune.Tuner.restore(
+        tuner = tune.Tuner.restore(
             trial_dir.as_posix(),
-            trainable=get_trainable(),  # type: ignore
+            trainable=get_trainable(restore=True),  # type: ignore
             param_space=get_param_space(),
-            _resume_config=resume_config,
         )
-        return restored
     else:
-        restored = tune.Tuner(
+        tuner = tune.Tuner(
             get_trainable(),
             param_space=get_param_space(),
             tune_config=get_tune_config(),
         )
-    return restored
+    return tuner
