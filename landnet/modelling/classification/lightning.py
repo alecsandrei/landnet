@@ -121,7 +121,7 @@ class LandslideImageClassifier(pl.LightningModule):
 
     def configure_optimizers(self):
         assert 'learning_rate' in self.config
-        optimizer = torch.optim.Adam(
+        optimizer = torch.optim.AdamW(
             self.parameters(), lr=self.config['learning_rate']
         )
         return optimizer
