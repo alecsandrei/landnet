@@ -3,9 +3,14 @@ from __future__ import annotations
 import os
 import typing as t
 
+from landnet.enums import GeomorphometricalVariable
+
 if t.TYPE_CHECKING:
+    import collections.abc as c
+
     from torch.utils.data import Subset
 
+    from landnet.enums import Mode
     from landnet.features.grids import Grid
     from landnet.features.tiles import TileConfig
     from landnet.modelling.classification.dataset import (
@@ -42,6 +47,14 @@ type SegmentationTrainTestValidation = tuple[
     AnyLandslideSegmentationDataset,
     AnyLandslideSegmentationDataset,
     LandslideSegmentationDataset,
+]
+
+type AnyLandslideImages = (
+    LandslideImageClassification | LandslideImageSegmentation
+)
+
+type CachedImages[T: AnyLandslideImages] = c.MutableMapping[
+    GeomorphometricalVariable, c.MutableMapping[Mode, T]
 ]
 
 

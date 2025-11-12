@@ -48,7 +48,11 @@ from landnet.utils import get_utc_now
 
 if t.TYPE_CHECKING:
     from landnet.modelling.tune import MetricSorter
-    from landnet.typing import ClassificationTrainTestValidation, TuneSpace
+    from landnet.typing import (
+        CachedImages,
+        ClassificationTrainTestValidation,
+        TuneSpace,
+    )
 
 logger = create_logger(__name__)
 
@@ -153,13 +157,7 @@ def get_trainer():
         plugins=[RayLightningEnvironment()],
         enable_progress_bar=False,
         max_epochs=EPOCHS,
-        # profiler='simple',
     )
-
-
-type CachedImages = c.MutableMapping[
-    GeomorphometricalVariable, dict[Mode, LandslideImageClassification]
-]
 
 
 @ray.remote
@@ -170,7 +168,9 @@ class LandslideImageClassificationCacher:
     to load."""
 
     def __init__(self):
-        self.map: c.MutableMapping[TileSize, CachedImages] = {}
+        self.map: c.MutableMapping[
+            TileSize, CachedImages[LandslideImageClassification]
+        ] = {}
 
     def get(
         self,
