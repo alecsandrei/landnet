@@ -183,9 +183,6 @@ cython_debug/
 # models
 models/*
 
-# DEM
-data/*
-
 # Logs
 lightning_logs/
 
