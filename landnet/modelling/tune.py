@@ -111,11 +111,15 @@ def get_tuner(
             ),
         )
 
-    def get_trainable():
+    def get_trainable(restore: bool = False):
+        checkpoint = None
+        if restore:
+            checkpoint = ExperimentAnalysis(trial_dir).get_last_checkpoint()
         return TorchTrainer(
             tune.with_parameters(train_func, **func_kwds),
             scaling_config=train.ScalingConfig(use_gpu=bool(GPUS)),
             run_config=get_run_config(),
+            resume_from_checkpoint=checkpoint,
         )
 
     def get_param_space():
