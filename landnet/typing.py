@@ -33,7 +33,7 @@ type AnyLandslideClassificationDataset = (
 )
 type ClassificationTrainTestValidation = tuple[
     AnyLandslideClassificationDataset,
-    AnyLandslideClassificationDataset,
+    LandslideClassificationDataset,
     LandslideClassificationDataset | None,
 ]
 
