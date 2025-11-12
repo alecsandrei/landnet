@@ -9,11 +9,9 @@ from ray.train import Checkpoint, CheckpointConfig
 from ray.train.torch import TorchTrainer
 from ray.tune import ExperimentAnalysis, Result, ResumeConfig
 from ray.tune.experiment import Trial
-from ray.tune.schedulers import ASHAScheduler
 from ray.tune.search.hyperopt import HyperOptSearch
 
 from landnet.config import (
-    EPOCHS,
     GPUS,
     NUM_SAMPLES,
     OVERLAP,
@@ -85,16 +83,6 @@ class SaveTrial(tune.Callback):
         )
 
 
-def get_scheduler(sorter: MetricSorter):
-    return ASHAScheduler(
-        metric=sorter.metric,
-        mode=sorter.mode,
-        max_t=EPOCHS,
-        grace_period=EPOCHS // 2,
-        reduction_factor=2,
-    )
-
-
 def get_tuner(
     train_func,
     func_kwds: dict,
@@ -117,7 +105,6 @@ def get_tuner(
 
     def get_tune_config():
         return tune.TuneConfig(
-            scheduler=get_scheduler(sorter),
             num_samples=NUM_SAMPLES,
             search_alg=HyperOptSearch(
                 metric=sorter.metric, mode=sorter.mode, random_state_seed=SEED
