@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import pandas as pd
 import ray
 import ray.util
 
-from landnet.config import CPUS, GPUS, TRIAL_NAME
+from landnet.config import CPUS, GPUS, MODELS_DIR, TRIAL_NAME
 from landnet.enums import GeomorphometricalVariable
 from landnet.logger import create_logger
 from landnet.modelling import torch_clear
@@ -14,7 +15,6 @@ from landnet.modelling.classification.train import (
 )
 from landnet.modelling.tune import MetricSorter
 
-ray.init(num_cpus=CPUS, num_gpus=GPUS)
 if GPUS:
     torch_clear()
 
@@ -24,53 +24,26 @@ logger = create_logger(__name__)
 
 def train_models():  # type: ignore
     sorter = MetricSorter('val_f2_score', 'max')
-    # vars = [
-    #     GeomorphometricalVariable.HILLSHADE,
-    #     GeomorphometricalVariable.TOPOGRAPHIC_POSITION_INDEX,
-    #     GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
-    #     GeomorphometricalVariable.DIGITAL_ELEVATION_MODEL,
-    #     GeomorphometricalVariable.EASTNESS,
-    #     GeomorphometricalVariable.SLOPE,
-    #     GeomorphometricalVariable.REAL_SURFACE_AREA,
-    #     GeomorphometricalVariable.FLOW_LINE_CURVATURE,
-    #     GeomorphometricalVariable.TERRAIN_RUGGEDNESS_INDEX,
-    #     GeomorphometricalVariable.LOCAL_CURVATURE,
-    # ]
-    # for var in vars:
-    #     cacher = LandslideImageClassificationCacher.remote()  # type: ignore
-    #     train_model([var], var.value, cacher, sorter)
 
-    cacher = LandslideImageClassificationCacher.remote()  # type: ignore
-    # train_model(list(GeomorphometricalVariable), TRIAL_NAME, cacher, sorter)
-    train_model(
-        [
-            GeomorphometricalVariable('shade'),
-            GeomorphometricalVariable('cup'),
-            GeomorphometricalVariable('area'),
-            GeomorphometricalVariable('cprof'),
-            GeomorphometricalVariable('tpi'),
-            GeomorphometricalVariable('dem'),
-            GeomorphometricalVariable('nego'),
-            GeomorphometricalVariable('eastness'),
-            GeomorphometricalVariable('tri'),
-            GeomorphometricalVariable('cmini'),
-        ],
-        TRIAL_NAME,
-        cacher,
-        sorter,
+    results = pd.read_csv(MODELS_DIR / TRIAL_NAME / 'results.csv')
+
+    sorted = results[['variable', 'val_f2_score']].sort_values(
+        'val_f2_score', ascending=False
     )
-
-    #     GeomorphometricalVariable.HILLSHADE,
-    #     GeomorphometricalVariable.TOPOGRAPHIC_POSITION_INDEX,
-    #     GeomorphometricalVariable.NEGATIVE_TOPOGRAPHIC_OPENNESS,
-    #     GeomorphometricalVariable.DIGITAL_ELEVATION_MODEL,
-    #     GeomorphometricalVariable.EASTNESS,
-    #     GeomorphometricalVariable.SLOPE,
-    #     GeomorphometricalVariable.REAL_SURFACE_AREA,
-    #     GeomorphometricalVariable.FLOW_LINE_CURVATURE,
-    #     GeomorphometricalVariable.TERRAIN_RUGGEDNESS_INDEX,
-    #     GeomorphometricalVariable.LOCAL_CURVATURE,
-    # ],
+    sorted = sorted[
+        sorted['variable'].isin(
+            [var.value for var in GeomorphometricalVariable]
+        )
+    ]
+    ray.init(num_cpus=CPUS, num_gpus=GPUS)
+    cacher = LandslideImageClassificationCacher.remote()  # type: ignore
+    for i in range(2, sorted.shape[0] + 1):
+        vars = [
+            GeomorphometricalVariable(var)
+            for var in sorted['variable'].iloc[:i]
+        ]
+        print('Training with', len(vars), 'variables:', vars)
+        train_model(vars, f'{i}_variables_deterministic', cacher, sorter)
 
 
 if __name__ == '__main__':
