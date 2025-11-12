@@ -39,6 +39,7 @@ NODATA = float(os.getenv('NODATA', -32767.0))
 SAGAGIS_NODATA = float(os.getenv('SAGAGIS_NODATA', -99999))
 
 # Model configs
+SEED = 0
 TRIAL_NAME = os.getenv('TRIAL_NAME', uuid.uuid4().hex)
 LANDSLIDE_DENSITY_THRESHOLD = float(
     os.getenv('LANDSLIDE_DENSITY_THRESHOLD', 0.05)
