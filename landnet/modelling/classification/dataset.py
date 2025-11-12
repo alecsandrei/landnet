@@ -9,6 +9,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset, Subset, WeightedRandomSampler
 
+from landnet import TORCH_GEN
 from landnet.config import LANDSLIDE_DENSITY_THRESHOLD
 from landnet.enums import LandslideClass, Mode
 from landnet.logger import create_logger
@@ -18,8 +19,6 @@ from landnet.modelling.dataset import (
 )
 
 logger = create_logger(__name__)
-g = torch.Generator()
-g.manual_seed(0)
 
 
 class PCAConcatLandslideImageClassification(Dataset):
@@ -67,12 +66,13 @@ class ConcatLandslideImageClassification(Dataset):
                 )
                 landslide_images.augment_transform = None
         image_batch = [images[index] for images in self.landslide_images]
-        images = [images[0] for images in image_batch]
+        images = torch.cat([images[0] for images in image_batch], dim=0)
         class_ = image_batch[0][1]
+        assert all(image[1] == class_ for image in image_batch)
         if self.augment_transform is not None:
-            images = self.augment_transform(*images)
-        cat = torch.cat(images, dim=0)
-        return (cat, class_)
+            images = self.augment_transform(images)
+            images = images[0] if isinstance(images, c.Sequence) else images
+        return (images, class_)
 
 
 @dataclass
@@ -133,12 +133,12 @@ class LandslideImageClassification(LandslideImages):
         tile, label = self._get_tile(index)
         assert isinstance(tile, torch.Tensor)
         if self.augment_transform is not None:
-            is_multi_channel = tile.shape[0] > 1
+            # is_multi_channel = tile.shape[0] > 1
             tiles = self.augment_transform(tile)
-            if is_multi_channel:
-                tile = torch.cat(tiles, dim=0)
-            else:
-                tile = tiles[0]
+            # if is_multi_channel:
+            tile = torch.cat(tiles, dim=0)
+            # else:
+            #    tile = tiles[0]
         return (tile, label)
 
     def _get_item_test(self, index: int) -> tuple[torch.Tensor, int]:
@@ -161,16 +161,15 @@ def get_classification_dataloader(
 ):
     sampler = None
     if weights is not None:
-        # replacement = True if size > len(dataset) else False
-        # TODO: Set this to True and not adaptive as above
         replacement = True
         samples_weight = torch.tensor(weights, dtype=torch.double)
         sampler = WeightedRandomSampler(
             samples_weight,  # type: ignore
             num_samples=size or samples_weight.numel(),
             replacement=replacement,
+            generator=TORCH_GEN,
         )
-    return DataLoader(dataset, **kwargs, generator=g, sampler=sampler)
+    return DataLoader(dataset, **kwargs, generator=TORCH_GEN, sampler=sampler)
 
 
 def create_classification_dataloader_from_subset(
