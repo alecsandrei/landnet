@@ -17,6 +17,7 @@ from landnet.config import (
     GPUS,
     NUM_SAMPLES,
     OVERLAP,
+    SEED,
     TEMP_RAY_TUNE_DIR,
     TILE_SIZE,
 )
@@ -131,7 +132,9 @@ def get_tuner(
         return tune.TuneConfig(
             scheduler=get_scheduler(sorter),
             num_samples=NUM_SAMPLES,
-            search_alg=HyperOptSearch(metric=sorter.metric, mode=sorter.mode),
+            search_alg=HyperOptSearch(
+                metric=sorter.metric, mode=sorter.mode, random_state_seed=SEED
+            ),
         )
 
     def get_trainable():
