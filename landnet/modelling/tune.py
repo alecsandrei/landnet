@@ -75,18 +75,6 @@ class SaveTrial(tune.Callback):
         assert ckpt is not None
         return Path(ckpt.path) / 'checkpoint.ckpt'
 
-    def on_trial_complete(
-        self, iteration: int, trials: t.List[Trial], trial: Trial, **info
-    ):
-        result = self._get_best_result([trial])
-        assert result.config is not None
-        logger.info('Trainable name: %s' % trial.path)
-        assert trial.path is not None
-        infer = InferTrainTest(self.variables, Path(trial.path))
-        infer.handle_checkpoint(
-            self.get_best_checkpoint(result), result.config['train_loop_config']
-        )
-
     def on_experiment_end(self, trials: list[Trial], **info):
         result = self._get_best_result(trials)
 
