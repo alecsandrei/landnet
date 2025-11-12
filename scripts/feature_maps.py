@@ -10,12 +10,14 @@ from landnet.config import ARCHITECTURE, FIGURES_DIR, GRIDS, MODELS_DIR
 from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.dataset import get_dem_tiles
 from landnet.features.tiles import TileConfig, TileSize
+from landnet.modelling import torch_clear
 from landnet.modelling.classification.inference import (
     InferenceFolder,
     perform_inference_on_tiles,
 )
 from landnet.modelling.classification.lightning import LandslideImageClassifier
 from landnet.modelling.classification.models import get_architecture
+from landnet.utils import geomorphometrical_variables_from_file
 
 
 def get_all_conv2d_layers(model):
@@ -109,7 +111,7 @@ def plot_feature_maps(
         for i, ax in enumerate(axes.flat):
             if i < num_maps:
                 ax.imshow(feature_maps[i].cpu().numpy(), cmap=cmap)
-                ax.set_title(f'Ch {i+1}')
+                ax.set_title(f'Ch {i + 1}')
             ax.axis('off')  # Hide axis
 
         plt.suptitle(f'Feature Maps from {layer_name}')
@@ -134,6 +136,7 @@ def plot_kernels(weights, out_file, layer_name, num_kernels=36, split=False):
         grid_size, grid_size, figsize=(grid_size * 2, grid_size * 2)
     )
 
+    print(out_file)
     if split:
         fig, ax = plt.subplots()
         for i in range(num_kernels):
@@ -157,7 +160,7 @@ def plot_kernels(weights, out_file, layer_name, num_kernels=36, split=False):
             if i < num_kernels:
                 kernel = kernels[i, 0]  # Take first input channel
                 ax.imshow(kernel, cmap=cmap)
-                ax.set_title(f'Kernel {i+1}')
+                ax.set_title(f'Kernel {i + 1}')
             ax.axis('off')
 
         plt.suptitle(f'Kernels from {layer_name}')
@@ -167,10 +170,9 @@ def plot_kernels(weights, out_file, layer_name, num_kernels=36, split=False):
 
 
 if __name__ == '__main__':
-    import torch
-
-    torch.cuda.empty_cache()
-    tile_path = '72/58/72_58_S11.tif'
+    torch_clear()
+    tile_name = '66_64_E9'
+    tile_path = '66/64/' + tile_name + '.tif'
 
     variables = [
         GeomorphometricalVariable.DOWNSLOPE_CURVATURE,
@@ -182,8 +184,12 @@ if __name__ == '__main__':
     tiles = get_dem_tiles()
     checkpoint = (
         MODELS_DIR
-        / '5vars_conv1x1_weightedBce_convnext_100x100/2025-04-02_09-54-28/TorchTrainer_2fc8ded1_4_batch_size=4,learning_rate=0.0001,tile_config=ref_ph_c793cfd2_2025-04-02_09-52-52/checkpoint_000004/checkpoint.ckpt'
+        / 'convnext_100x100_10vars/convnext_100x100_10vars/TorchTrainer_cf20a57d_5_batch_size=4,learning_rate=0.0000,tile_config=ref_ph_c793cfd2_2025-06-28_00-30-26/checkpoint_000016/checkpoint.ckpt'
     )
+    variables_path = (
+        checkpoint.parent.parent.parent / 'geomorphometrical_variables'
+    )
+    variables = geomorphometrical_variables_from_file(variables_path)
     classifier = LandslideImageClassifier.load_from_checkpoint(
         checkpoint,
         model=get_architecture(ARCHITECTURE)(len(variables), Mode.INFERENCE),
@@ -199,11 +205,12 @@ if __name__ == '__main__':
         tiles=tile,
         variables=variables,
     )
+    breakpoint()
 
     # model_layers = list(classifier.model.children())
     layers = get_all_conv2d_layers(classifier)
-    to_plot = list(layers)[:20]
-    registered = register_hooks(classifier, to_plot)
+    to_plot = list(layers)
+    registered = [register_hooks(classifier, to_plot)[-1]]
 
     perform_inference_on_tiles(classifier, folder)
 
@@ -212,16 +219,16 @@ if __name__ == '__main__':
     for layer in registered:
         plot_kernels(
             kernels,
-            (out_dir / f'{layer}_kernel.png').with_suffix('.png'),
+            (out_dir / f'{tile_name}_{layer}_kernel.png').with_suffix('.png'),
             layer,
             split=True,
             num_kernels=5,
         )
         plot_feature_maps(
             activations,
-            (out_dir / layer).with_suffix('.png'),
+            (out_dir / f'{tile_name}_{layer}').with_suffix('.png'),
             layer,
-            split=False,
+            split=True,
             num_maps=36,
         )
     assert folder.parent.exists()
