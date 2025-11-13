@@ -110,32 +110,6 @@ class TileHandler:
         _, _, max_x, max_y = self._compute_tiles_grid(src)
         return max_x * max_y
 
-    # def get_tiles(self, src: DatasetReader):
-    #     ncols, nrows = src.meta['width'], src.meta['height']
-    #     xstep = self.config.size.width
-    #     ystep = self.config.size.height
-    #     for x in range(0, ncols + xstep, xstep):
-    #         if x != 0:
-    #             x -= self.config.overlap
-    #         width = self.config.size.width + self.config.overlap * (
-    #             2 if x != 0 else 1
-    #         )
-    #         if x + width > ncols:
-    #             # logger.warning('Could not create tiles from x=%i' % x)
-    #             break
-    #         for y in range(0, nrows + ystep, ystep):
-    #             if y != 0:
-    #                 y -= self.config.overlap
-    #             height = self.config.size.height + self.config.overlap * (
-    #                 2 if y != 0 else 1
-    #             )
-    #             if y + height > nrows:
-    #                 # logger.warning('Could not create tiles from y=%i' % y)
-    #                 break
-    #             window = windows.Window(x, y, width, height)  # type: ignore
-    #             transform = windows.transform(window, src.transform)
-    #             yield window, transform
-
 
 def get_raster_features(
     path: Path,
@@ -380,29 +354,9 @@ class RasterTiles:
             merge_kwargs = {}
         merge_kwargs.setdefault('nodata', NODATA)
         merge_kwargs.setdefault('resampling', Resampling.bilinear)
-        # merge_kwargs.setdefault('method', RasterTiles.custom_merge_mean)
         merge_kwargs.setdefault('target_aligned_pixels', True)
         rasterio.merge.merge(paths.values, dst_path=out_file, **merge_kwargs)
         return out_file
-
-    @staticmethod
-    def custom_merge_mean(
-        merged_data, new_data, merged_mask, new_mask, **kwargs
-    ):
-        """Returns the maximum value pixel."""
-        mask = np.empty_like(merged_mask, dtype='bool')
-        np.logical_or(merged_mask, new_mask, out=mask)
-        np.logical_not(mask, out=mask)
-        merged_data[mask] = np.mean(
-            np.concatenate([merged_data[mask], new_data[mask]], axis=0)
-        )
-        np.logical_not(new_mask, out=mask)
-        np.logical_and(merged_mask, mask, out=mask)
-        np.copyto(merged_data, new_data, where=mask, casting='unsafe')
-
-
-# @dataclass
-# class LandslideImageSemanticSegmentation(LandslideImages): ...
 
 
 def get_dem_cell_size(raster: Path) -> tuple[float, float]:
