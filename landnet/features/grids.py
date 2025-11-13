@@ -14,7 +14,7 @@ import rasterio.mask
 import rasterio.merge
 import rasterio.warp
 from PySAGA_cmd.saga import SAGA
-from rasterio import windows
+from rasterio import DatasetReader, windows
 from rasterio.io import MemoryFile
 from rasterio.mask import raster_geometry_mask
 from shapely import Polygon, box
@@ -522,8 +522,9 @@ class Grid:
 
     def get_bounds(self, indices: c.Sequence[int]) -> gpd.GeoSeries:
         geoms = []
-        for i in indices:
-            geoms.append(self.get_tile_bounds(i)[2])
+        with rasterio.open(self.path) as src:
+            for i in indices:
+                geoms.append(self.get_tile_bounds(i, src)[2])
         bounds = gpd.GeoSeries(data=geoms)
         bounds.set_crs(inplace=True, epsg=EPSG)
         return bounds
@@ -555,20 +556,24 @@ class Grid:
         return bounds
 
     def get_tile_bounds(
-        self, index: int
+        self, index: int, src: DatasetReader | None = None
     ) -> tuple[Metadata, windows.Window, Polygon]:
         assert self.tile_handler is not None
 
-        with rasterio.open(self.path, nodata=SAGAGIS_NODATA) as src:
-            metadata = src.meta.copy()
+        should_close = src is None
+        if src is None:
+            src = rasterio.open(self.path, nodata=SAGAGIS_NODATA)
+        metadata = src.meta.copy()
 
-            window, transform = self.tile_handler.get_tile(src, index)
-            metadata['transform'] = transform
-            metadata['width'], metadata['height'] = (
-                window.width,
-                window.height,
-            )
-            bounds = box(*windows.bounds(window, src.transform))
+        window, transform = self.tile_handler.get_tile(src, index)
+        metadata['transform'] = transform
+        metadata['width'], metadata['height'] = (
+            window.width,
+            window.height,
+        )
+        bounds = box(*windows.bounds(window, src.transform))
+        if should_close:
+            src.close()
         return (metadata, window, bounds)
 
     def get_tile(self, index: int) -> tuple[Metadata, np.ndarray, Polygon]:
