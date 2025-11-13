@@ -508,11 +508,8 @@ class Grid:
     path: Path
     tile_config: TileConfig
     mode: Mode
-    tile_handler: TileHandler = field(init=False)
     landslides: gpd.GeoSeries | None = None
-    cached_tile: dict[int, tuple[Metadata, np.ndarray, Polygon]] = field(
-        init=False, default_factory=dict
-    )
+    tile_handler: TileHandler = field(init=False)
 
     def __post_init__(self):
         if self.tile_config:
@@ -575,17 +572,9 @@ class Grid:
             return (metadata, window, bounds)
 
     def get_tile(self, index: int) -> tuple[Metadata, np.ndarray, Polygon]:
-        if (vals := self.cached_tile.get(index, None)) is None:
-            with rasterio.open(self.path, nodata=SAGAGIS_NODATA) as src:
-                metadata, window, bounds = self.get_tile_bounds(index)
-                self.cached_tile[index] = (
-                    metadata,
-                    src.read(window=window),
-                    bounds,
-                )
-
-                return self.cached_tile[index]
-        return vals
+        metadata, window, bounds = self.get_tile_bounds(index)
+        with rasterio.open(self.path, nodata=SAGAGIS_NODATA) as src:
+            return (metadata, src.read(window=window), bounds)
 
     def write_tile(
         self,
