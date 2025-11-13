@@ -569,7 +569,7 @@ class Grid:
                 window.height,
             )
             bounds = box(*windows.bounds(window, src.transform))
-            return (metadata, window, bounds)
+        return (metadata, window, bounds)
 
     def get_tile(self, index: int) -> tuple[Metadata, np.ndarray, Polygon]:
         metadata, window, bounds = self.get_tile_bounds(index)
@@ -634,7 +634,7 @@ class Grid:
                 [np.logical_not(landslide_mask), landslide_mask]
             ).astype('uint8')
             assert (mask.sum(axis=0) == 1).all()
-        return (metadata, mask, bounds)
+            return (metadata, mask, bounds)
 
     def mask(
         self,
@@ -646,20 +646,20 @@ class Grid:
             mask_kwargs = {}
         mask_kwargs.setdefault('crop', True)
         mask_kwargs.setdefault('filled', True)
-        with rasterio.open(self.path) as src:
+        with rasterio.open(self.path, nodata=SAGAGIS_NODATA) as src:
             out_image, transformed = rasterio.mask.mask(
                 src, [geometry], **mask_kwargs
             )
             out_profile = src.profile.copy()
 
-            out_profile.update(
-                {
-                    'width': out_image.shape[2],
-                    'height': out_image.shape[1],
-                    'transform': transformed,
-                }
-            )
-            out_profile.setdefault('crs', rasterio.crs.CRS.from_epsg(EPSG))
+        out_profile.update(
+            {
+                'width': out_image.shape[2],
+                'height': out_image.shape[1],
+                'transform': transformed,
+            }
+        )
+        out_profile.setdefault('crs', rasterio.crs.CRS.from_epsg(EPSG))
         if overwrite:
             with rasterio.open(self.path, 'w', **out_profile) as dst:
                 dst.write(out_image)
