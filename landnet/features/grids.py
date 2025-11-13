@@ -617,7 +617,7 @@ class Grid:
 
     def get_tile_mask(self, index: int) -> tuple[Metadata, np.ndarray, Polygon]:
         metadata, window, bounds = self.get_tile_bounds(index)
-        landslides = self.get_tile_landslides(index)
+        landslides = self.get_tile_landslides(bounds)
         with rasterio.open(self.path, nodata=SAGAGIS_NODATA) as src:
             array = src.read(window=window)
             if not landslides.empty:
