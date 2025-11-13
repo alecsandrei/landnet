@@ -30,7 +30,6 @@ from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.dataset import (
     get_landslide_shapes,
     get_limit,
-    get_percentage_intersection,
 )
 from landnet.features.tiles import TileConfig, TileHandler
 from landnet.logger import create_logger
@@ -548,12 +547,13 @@ class Grid:
         bounds = self.get_bounds(indices)
         bounds = t.cast(gpd.GeoDataFrame, bounds.to_frame('geometry'))
         bounds['index'] = indices
-        bounds['landslide_density'] = bounds.apply(
-            lambda row: get_percentage_intersection(
-                row['geometry'],
-                other=self.get_tile_landslides(row['index']),
-            ),  # type: ignore
-            axis=1,
+        bounds['landslide_density'] = 0.0
+        intersection = bounds.overlay(
+            get_landslide_shapes(self.mode), how='intersection'
+        )
+        dissolved = intersection.dissolve('index')
+        bounds.loc[dissolved.index, 'landslide_density'] = (
+            dissolved.area / bounds.loc[dissolved.index].area
         )
         return bounds
 
