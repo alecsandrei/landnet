@@ -521,10 +521,11 @@ class Grid:
             return self.tile_handler.get_tiles_length(src)
 
     def get_bounds(self, indices: c.Sequence[int]) -> gpd.GeoSeries:
-        bounds = gpd.GeoSeries()
-        bounds.set_crs(inplace=True, epsg=EPSG)
+        geoms = []
         for i in indices:
-            bounds[i] = self.get_tile_bounds(i)[2]
+            geoms.append(self.get_tile_bounds(i)[2])
+        bounds = gpd.GeoSeries(data=geoms)
+        bounds.set_crs(inplace=True, epsg=EPSG)
         return bounds
 
     def get_tile_landslides(self, index: int) -> gpd.GeoSeries:
