@@ -528,8 +528,7 @@ class Grid:
         bounds.set_crs(inplace=True, epsg=EPSG)
         return bounds
 
-    def get_tile_landslides(self, index: int) -> gpd.GeoSeries:
-        _, _, bounds = self.get_tile_bounds(index)
+    def get_tile_landslides(self, bounds: Polygon) -> gpd.GeoSeries:
         landslides = (
             get_landslide_shapes(self.mode)
             if self.landslides is None
