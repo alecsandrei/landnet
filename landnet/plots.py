@@ -49,10 +49,10 @@ def get_confusion_matrix(
     array_labels = np.array([[0, 1], [2, 3]])
     cmap = ListedColormap(
         [
-            '#1eb316',  # Color 4
-            '#ffe101',  # Color 3
+            '#33a02c',  # Color 4
+            '#ffff00',  # Color 3
             '#5fa2ff',  # Color 1
-            '#fe0d00',  # Color 2
+            '#ff0000',  # Color 2
         ]
     )
 
