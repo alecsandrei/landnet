@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import collections.abc as c
+import os
 import typing as t
+from pathlib import Path
 
 import lightning.pytorch as pl
 import torch
@@ -17,11 +19,11 @@ from torch import nn
 from landnet.config import (
     ARCHITECTURE,
     EPOCHS,
+    EXPERIMENTS_NAME,
     GPUS,
     MODELS_DIR,
     OVERWRITE,
     TEMP_RAY_TUNE_DIR,
-    TRIAL_NAME,
 )
 from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.grids import get_grid_for_variable
@@ -59,19 +61,20 @@ logger = create_logger(__name__)
 
 
 def train_model(
-    variables: c.Sequence[GeomorphometricalVariable],
     model_name: str,
+    variables: c.Sequence[GeomorphometricalVariable],
     sorter: MetricSorter,
+    out_dir: Path | None = None,
 ) -> Result | None:
-    assert TRIAL_NAME is not None
-    TEMP_RAY_TUNE_DIR.mkdir(exist_ok=True)
-    experiment_dir = MODELS_DIR / TRIAL_NAME / model_name
-    if experiment_dir.exists() and not OVERWRITE:
+    os.makedirs(TEMP_RAY_TUNE_DIR, exist_ok=True)
+    if out_dir is None:
+        out_dir = MODELS_DIR / EXPERIMENTS_NAME / model_name
+    if out_dir.exists() and not OVERWRITE:
         logger.info(
             'Skipping training for %s as %s already exists.'
-            % (variables, experiment_dir)
+            % (variables, out_dir)
         )
-        return get_best_result_from_experiment(experiment_dir, sorter)
+        return get_best_result_from_experiment(out_dir, sorter)
     tuner = get_tuner(
         train_func,
         func_kwds={
@@ -92,7 +95,13 @@ def train_model(
 
     logger.info('Best trial config: %s' % best_result.config)
     logger.info('Best trial final validation metrics: %s' % best_result.metrics)
-    save_experiment(results, sorter, variables, model_name)
+    save_experiment(
+        results=results,
+        sorter=sorter,
+        variables=variables,
+        model_name=model_name,
+        out_dir=out_dir,
+    )
     return best_result
 
 

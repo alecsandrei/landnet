@@ -56,7 +56,7 @@ DEFAULT_CLASS_BALANCE = {
 TRAIN_NUM_SAMPLES = int(os.getenv('TRAIN_NUM_SAMPLES', 1000))
 
 # Tune configs
-TRIAL_NAME = os.getenv('TRIAL_NAME', uuid.uuid4().hex)
+EXPERIMENTS_NAME = os.getenv('EXPERIMENTS_NAME', uuid.uuid4().hex)
 NUM_SAMPLES = int(
     os.getenv('NUM_SAMPLES', 5)
 )  # Number of models to train with ray for hyperparameter tuning
@@ -64,7 +64,7 @@ GPUS = int(os.getenv('GPUS', 1))
 CPUS = os.getenv('CPUS', None)
 OVERWRITE = bool(
     int(os.getenv('OVERWRITE', 0))
-)  # Whether or not to overwrite the existing models in TRIAL_NAME
+)  # Whether or not to overwrite the existing models in EXPERIMENTS_NAME
 TEMP_RAY_TUNE_DIR = MODELS_DIR / 'temp_ray_tune'
 
 

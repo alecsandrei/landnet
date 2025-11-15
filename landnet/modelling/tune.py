@@ -16,13 +16,11 @@ from ray.tune.search.hyperopt import HyperOptSearch
 
 from landnet.config import (
     GPUS,
-    MODELS_DIR,
     NUM_SAMPLES,
     OVERLAP,
     SEED,
     TEMP_RAY_TUNE_DIR,
     TILE_SIZE,
-    TRIAL_NAME,
     save_vars_as_json,
 )
 from landnet.enums import GeomorphometricalVariable, Mode
@@ -233,19 +231,17 @@ def get_best_result_from_experiment(
 
 def save_experiment(
     results: ResultGrid,
-    sorter: MetricSorter,
     variables: c.Sequence[GeomorphometricalVariable],
     model_name: str,
+    out_dir: Path,
+    sorter: MetricSorter,
 ):
-    experiment_out_dir = MODELS_DIR / TRIAL_NAME / model_name
     experiment_dir = TEMP_RAY_TUNE_DIR / model_name
-    os.makedirs(experiment_out_dir, exist_ok=True)
-    results.get_dataframe().T.to_csv(experiment_out_dir / 'trials.csv')
+    os.makedirs(out_dir, exist_ok=True)
+    results.get_dataframe().T.to_csv(out_dir / 'trials.csv')
     for content in experiment_dir.iterdir():
-        shutil.move(content, experiment_out_dir)
-    with (experiment_out_dir / 'geomorphometrical_variables').open(
-        mode='w'
-    ) as file:
+        shutil.move(content, out_dir)
+    with (out_dir / 'geomorphometrical_variables').open(mode='w') as file:
         for var in variables:
             file.write(f'{str(var)}\n')
-    save_vars_as_json(experiment_out_dir / 'config.json')
+    save_vars_as_json(out_dir / 'config.json')
