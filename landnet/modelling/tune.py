@@ -43,12 +43,12 @@ class MetricSorter(t.NamedTuple):
     mode: t.Literal['max', 'min']
 
 
-def get_tune_space():
+def get_tune_space() -> TuneSpace:
     return {
         'learning_rate': tune.loguniform(1e-6, 1e-4),
         'batch_size': tune.choice([2, 4, 8]),
         'tile_config': tune.choice(
-            [TileConfig(TileSize(TILE_SIZE, TILE_SIZE), OVERLAP)]
+            [TileConfig(TileSize.from_size(TILE_SIZE), OVERLAP)]
         ),
     }
 
