@@ -9,8 +9,8 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from landnet import seed_worker
-from landnet.config import BATCH_SIZE, DEFAULT_CLASS_BALANCE
-from landnet.enums import GeomorphometricalVariable
+from landnet.config import BATCH_SIZE, DEFAULT_CLASS_BALANCE, TRAIN_NUM_SAMPLES
+from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.logger import create_logger
 from landnet.modelling.classification.dataset import (
     create_classification_dataloader,
@@ -147,10 +147,9 @@ class LandslideImageDataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         assert self.train_dataset is not None
-        size = 1000
         logger.info(
             'Length of train dataset: %d, picking randomly with replacement %d samples for training.'
-            % (len(self.train_dataset), size)
+            % (len(self.train_dataset), TRAIN_NUM_SAMPLES)
         )
         return create_classification_dataloader(
             self.train_dataset,
@@ -161,7 +160,7 @@ class LandslideImageDataModule(pl.LightningDataModule):
             class_balance=DEFAULT_CLASS_BALANCE,
             pin_memory=True,
             worker_init_fn=seed_worker,
-            size=size,
+            size=TRAIN_NUM_SAMPLES,
         )
 
     def val_dataloader(self):
