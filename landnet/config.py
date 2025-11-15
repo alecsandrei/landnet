@@ -34,36 +34,38 @@ LOGGING_CONFIG = LOGGING_DIR / 'config.json'
 
 # GIS configs
 EPSG = 3844
-SAGA_CMD: str | None = None  # could be configures to specify path to saga_cmd
+SAGA_CMD: str | None = None  # could be configured to specify path to saga_cmd
 NODATA = float(os.getenv('NODATA', -32767.0))
 SAGAGIS_NODATA = float(os.getenv('SAGAGIS_NODATA', -99999))
 
 # Model configs
 SEED = 0
-TRIAL_NAME = os.getenv('TRIAL_NAME', uuid.uuid4().hex)
 LANDSLIDE_DENSITY_THRESHOLD = float(
     os.getenv('LANDSLIDE_DENSITY_THRESHOLD', 0.05)
 )
 ARCHITECTURE = Architecture(os.getenv('ARCHITECTURE', 'resnet50'))
 PRETRAINED = bool(int(os.getenv('PRETRAINED', 1)))
 EPOCHS = int(os.getenv('EPOCHS', 5))
-GPUS = int(os.getenv('GPUS', 1))
-CPUS = int(os.getenv('CPUS', 4))
 BATCH_SIZE = int(os.getenv('BATCH_SIZE', 4))
-NUM_SAMPLES = int(
-    os.getenv('NUM_SAMPLES', 5)
-)  # Number of models to train with ray for hyperparameter tuning
-OVERWRITE = bool(
-    int(os.getenv('OVERWRITE', 0))
-)  # Whether or not to overwrite the existing models
 TILE_SIZE = int(os.getenv('TILE_SIZE', 100))  # Size of the tiles in pixels
 OVERLAP = int(os.getenv('OVERLAP', 0))
-
-TEMP_RAY_TUNE_DIR = MODELS_DIR / 'temp_ray_tune'
 DEFAULT_CLASS_BALANCE = {
     LandslideClass.NO_LANDSLIDE: 0.5,
     LandslideClass.LANDSLIDE: 0.5,
 }
+TRAIN_NUM_SAMPLES = int(os.getenv('TRAIN_NUM_SAMPLES', 1000))
+
+# Tune configs
+TRIAL_NAME = os.getenv('TRIAL_NAME', uuid.uuid4().hex)
+NUM_SAMPLES = int(
+    os.getenv('NUM_SAMPLES', 5)
+)  # Number of models to train with ray for hyperparameter tuning
+GPUS = int(os.getenv('GPUS', 1))
+CPUS = os.getenv('CPUS', None)
+OVERWRITE = bool(
+    int(os.getenv('OVERWRITE', 0))
+)  # Whether or not to overwrite the existing models in TRIAL_NAME
+TEMP_RAY_TUNE_DIR = MODELS_DIR / 'temp_ray_tune'
 
 
 def save_vars_as_json(out_file: Path):
