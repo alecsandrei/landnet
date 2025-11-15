@@ -185,7 +185,11 @@ def get_tuner(
     def get_trainable(restore: bool = False):
         checkpoint = None
         if restore:
-            checkpoint = ExperimentAnalysis(trial_dir).get_last_checkpoint()
+            experiment = ExperimentAnalysis(trial_dir)
+            trial = experiment.trials[-1]
+            checkpoint = experiment.get_last_checkpoint(
+                trial=trial, metric='training_iteration'
+            )
         return TorchTrainer(
             tune.with_parameters(train_func, **func_kwds),
             scaling_config=train.ScalingConfig(use_gpu=bool(GPUS)),
@@ -199,11 +203,13 @@ def get_tuner(
         }
 
     if tune.Tuner.can_restore(trial_dir):
+        logger.info('Attempting to restore trial.')
         tuner = tune.Tuner.restore(
             trial_dir.as_posix(),
             trainable=get_trainable(restore=True),  # type: ignore
             param_space=get_param_space(),
         )
+        logger.info('Trial %s restored' % trial_dir)
     else:
         tuner = tune.Tuner(
             get_trainable(),
