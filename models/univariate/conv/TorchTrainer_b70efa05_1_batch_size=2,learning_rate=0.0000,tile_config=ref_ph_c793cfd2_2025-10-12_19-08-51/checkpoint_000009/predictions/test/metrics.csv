@@ -1,0 +1,10 @@
+,0
+accuracy,0.34437501430511475
+f1_score,0.5123198628425598
+f2_score,0.7242376208305359
+f3_score,0.8400670886039734
+negative_predictive_value,0.0
+positive_predictive_value,0.34437501430511475
+roc_auc,0.5138295888900757
+sensitivity,1.0
+specificity,0.0
