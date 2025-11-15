@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 import collections.abc as c
-import typing as t
 
-import torch
 import torchvision.models
-from sklearn.decomposition import PCA
 from torch import nn
-from torch.utils.data import Dataset
 from torchvision.models import AlexNet, ConvNeXt, ResNet
 
 from landnet._vendor.kcn import ConvNeXtKAN, ResNetKAN
@@ -15,9 +11,6 @@ from landnet.config import PRETRAINED
 from landnet.enums import Architecture, Mode
 from landnet.logger import create_logger
 from landnet.modelling.models import ModelBuilder
-
-if t.TYPE_CHECKING:
-    from landnet.modelling.classification.dataset import LandslideImages
 
 logger = create_logger(__name__)
 
@@ -182,80 +175,3 @@ MODEL_BUILDERS: dict[Architecture, ModelBuilder] = {
     Architecture.RESNET50KAN: ResNet50KANBuilder(),
     Architecture.CONVNEXTKAN: ConvNextKANBuilder(),
 }
-
-
-# Function to apply PCA on the channel dimension of an image
-def apply_pca_on_channels(
-    image: torch.Tensor, n_components: int = 8
-) -> torch.Tensor:
-    """
-    Apply PCA on the channel dimension of the image to reduce the number of channels.
-
-    Args:
-        image: A tensor of shape (C, H, W), where C is the number of channels.
-        n_components: Number of principal components to retain.
-
-    Returns:
-        A tensor of shape (n_components, H, W), with reduced channels.
-    """
-    # Reshape the image to (C, H*W) to treat each channel as a feature
-    image_flat = image.view(image.shape[0], -1).numpy()  # Shape (C, H*W)
-
-    # Apply PCA to reduce channels (C -> n_components)
-    pca = PCA(n_components=n_components)
-    image_pca = pca.fit_transform(
-        image_flat.T
-    ).T  # Apply PCA and transpose back
-
-    # Convert back to a tensor and reshape to (n_components, H, W)
-    return torch.tensor(image_pca).view(
-        n_components, image.shape[1], image.shape[2]
-    )
-
-
-# Function to apply PCA on all images in the ConcatDataset
-class PCAConcatDataset(Dataset):
-    def __init__(
-        self,
-        landslide_images: c.Sequence[LandslideImages],
-        n_components: int = 8,
-    ):
-        """
-        Apply PCA on all images in the ConcatDataset object to reduce the channels.
-
-        Args:
-            concat_dataset: The concatenated dataset containing images.
-            n_components: Number of principal components to retain for PCA.
-        """
-        self.landslide_images = landslide_images
-        self.n_components = n_components
-
-        # Apply PCA to all images in the dataset
-        self.reduced_data: list[tuple[torch.Tensor, int]] = (
-            self._apply_pca_to_all_images()
-        )
-
-    def _apply_pca_to_all_images(self):
-        """
-        Apply PCA to all images in the dataset and store the reduced images.
-
-        Returns:
-            A list of PCA-reduced images.
-        """
-        reduced_images: list[tuple[torch.Tensor, int]] = []
-        for image_batch in zip(*self.landslide_images):
-            cat = torch.cat([batch[0] for batch in image_batch], dim=0)
-            class_ = image_batch[0][1]
-            assert all(batch[1] == class_ for batch in image_batch[1:])
-            reduced_image = apply_pca_on_channels(cat, self.n_components)
-            reduced_images.append((reduced_image, class_))
-        return reduced_images
-
-    def __len__(self):
-        return len(self.reduced_data)
-
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
-        """
-        Return the PCA-reduced image.
-        """
-        return self.reduced_data[index]

@@ -13,35 +13,11 @@ from landnet import TORCH_GEN
 from landnet.config import LANDSLIDE_DENSITY_THRESHOLD
 from landnet.enums import LandslideClass, Mode
 from landnet.logger import create_logger
-from landnet.modelling.classification.models import apply_pca_on_channels
 from landnet.modelling.dataset import (
     LandslideImages,
 )
 
 logger = create_logger(__name__)
-
-
-class PCAConcatLandslideImageClassification(Dataset):
-    def __init__(
-        self,
-        landslide_images: c.Sequence[LandslideImageClassification],
-        num_components: int,
-    ):
-        self.landslide_images = landslide_images
-        self.concat = ConcatLandslideImageClassification(self.landslide_images)
-        self.data_indices = self.concat.data_indices  # type: ignore
-        self.num_components = num_components
-
-    def __len__(self):
-        return len(self.landslide_images[0])
-
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
-        """
-        Return the PCA-reduced image.
-        """
-
-        tile, class_ = self.concat[index]
-        return (apply_pca_on_channels(tile, self.num_components), class_)
 
 
 @dataclass
