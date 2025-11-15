@@ -86,12 +86,72 @@ class SavePredictions(tune.Callback):
 
     def on_experiment_end(self, trials: list[Trial], **info):
         result = self._get_best_result(trials)
-
         assert result.config is not None
-        infer = InferTrainTest(self.variables, Path(result.path))
-        infer.handle_checkpoint(
-            self.get_best_checkpoint(result), result.config['train_loop_config']
+        checkpoint = self.get_best_checkpoint(result)
+        infer = InferTrainTest(
+            self.variables, checkpoint.parent / 'predictions'
         )
+        infer.handle_checkpoint(
+            checkpoint,
+            result.config['train_loop_config'],
+            modes=(Mode.TEST, Mode.TRAIN, Mode.VALIDATION),
+        )
+
+
+def get_metrics_from_checkpoint(checkpoint: Path) -> dict[str, float]:
+    predictions = checkpoint.parent / 'predictions'
+
+    all_metrics: dict[str, float] = {}
+    for mode in (Mode.TRAIN, Mode.TEST, Mode.VALIDATION):
+        metrics = pd.read_csv(
+            predictions / mode.value / 'metrics.csv', index_col=0
+        )
+        metrics = metrics.iloc[:, 0]
+        metrics.index = mode.value + '_' + metrics.index
+        all_metrics.update(metrics.to_dict())
+    return all_metrics
+
+
+def get_result_as_dict(
+    result: Result, sorter: MetricSorter, fix_missing_predictions: bool = False
+) -> dict[str, t.Any]:
+    assert result.config is not None
+    experiment_dir = Path(result.path).parent
+    result_map: dict[str, t.Any] = {}
+    result_map['model'] = experiment_dir.stem
+
+    checkpoint_path = (
+        Path(
+            result.get_best_checkpoint(
+                metric=sorter.metric, mode=sorter.mode
+            ).path
+        )
+        / 'checkpoint.ckpt'
+    )
+    if fix_missing_predictions and not has_predictions(checkpoint_path):
+        save_predictions(
+            GeomorphometricalVariable.parse_file(
+                experiment_dir / 'geomorphometrical_variables'
+            ),
+            checkpoint_path,
+        )
+    result_map.update(get_metrics_from_checkpoint(checkpoint_path))
+    result_map.update(result.config['train_loop_config'])
+    result_map['checkpoint'] = checkpoint_path.parent.name
+    result_map['epoch'] = int(checkpoint_path.parent.name.split('_')[1])
+    return result_map
+
+
+def get_results_df(
+    results: c.Sequence[Result],
+    sorter: MetricSorter,
+    fix_missing_predictions: bool = False,
+) -> pd.DataFrame:
+    result_maps = [
+        get_result_as_dict(result, sorter, fix_missing_predictions)
+        for result in results
+    ]
+    return pd.DataFrame(result_maps)
 
 
 def get_tuner(
