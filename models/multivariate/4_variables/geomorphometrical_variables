@@ -1,0 +1,4 @@
+GeomorphometricalVariable.REAL_SURFACE_AREA
+GeomorphometricalVariable.SLOPE
+GeomorphometricalVariable.TERRAIN_RUGGEDNESS_INDEX
+GeomorphometricalVariable.HILLSHADE

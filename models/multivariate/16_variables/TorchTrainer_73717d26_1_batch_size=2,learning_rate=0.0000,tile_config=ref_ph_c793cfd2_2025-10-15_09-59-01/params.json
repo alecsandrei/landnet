@@ -1,0 +1,7 @@
+{
+  "train_loop_config": {
+    "batch_size": 2,
+    "learning_rate": 5.822477020628017e-06,
+    "tile_config": "TileConfig(size=TileSize(width=50, height=50), overlap=25)"
+  }
+}
