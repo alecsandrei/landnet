@@ -99,6 +99,6 @@ class GeoJSON(t.TypedDict):
 
 
 class TuneSpace(t.TypedDict):
-    batch_size: int
-    tile_config: TileConfig
     learning_rate: t.NotRequired[float]
+    batch_size: int
+    tile_config: t.NotRequired[TileConfig]
