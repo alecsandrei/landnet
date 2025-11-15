@@ -217,3 +217,35 @@ def get_tuner(
             tune_config=get_tune_config(),
         )
     return tuner
+
+
+def get_best_result_from_experiment(
+    experiment_dir: Path, sorter: MetricSorter
+) -> Result:
+    analysis = ExperimentAnalysis(
+        experiment_dir, default_metric=sorter.metric, default_mode=sorter.mode
+    )
+    result_grid = ResultGrid(analysis)
+    return result_grid.get_best_result(
+        metric=sorter.metric, mode=sorter.mode, scope='all'
+    )
+
+
+def save_experiment(
+    results: ResultGrid,
+    sorter: MetricSorter,
+    variables: c.Sequence[GeomorphometricalVariable],
+    model_name: str,
+):
+    experiment_out_dir = MODELS_DIR / TRIAL_NAME / model_name
+    experiment_dir = TEMP_RAY_TUNE_DIR / model_name
+    os.makedirs(experiment_out_dir, exist_ok=True)
+    results.get_dataframe().T.to_csv(experiment_out_dir / 'trials.csv')
+    for content in experiment_dir.iterdir():
+        shutil.move(content, experiment_out_dir)
+    with (experiment_out_dir / 'geomorphometrical_variables').open(
+        mode='w'
+    ) as file:
+        for var in variables:
+            file.write(f'{str(var)}\n')
+    save_vars_as_json(experiment_out_dir / 'config.json')
