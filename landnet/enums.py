@@ -61,7 +61,10 @@ class GeomorphometricalVariable(Enum):
     def parse_file(cls, path: Path) -> list[GeomorphometricalVariable]:
         with path.open(mode='r') as file:
             return [
-                cls._member_map_[variable.strip().split('.')[1]]
+                t.cast(
+                    GeomorphometricalVariable,
+                    cls._member_map_[variable.strip().split('.')[1]],
+                )
                 for variable in file.readlines()
             ]
 
