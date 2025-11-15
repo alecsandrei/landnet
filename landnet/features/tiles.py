@@ -45,9 +45,13 @@ class TileSize:
         return f'{self.width}x{self.height}'
 
     @classmethod
-    def from_string(cls, string: str):
+    def from_string(cls, string: str) -> t.Self:
         split = string.split('x')
         return TileSize(float(split[0]), float(split[1]))
+
+    @classmethod
+    def from_size(cls, size: float) -> t.Self:
+        return TileSize(size, size)
 
 
 @dataclass(frozen=True, eq=True)
