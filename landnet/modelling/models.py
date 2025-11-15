@@ -33,11 +33,7 @@ class ModelBuilder[T: nn.Module](ABC):
 
     def _get_model(self, mode: Mode) -> T:
         model = self.model()
-        if (
-            PRETRAINED
-            and mode not in (Mode.INFERENCE, Mode.TEST)
-            and self.weights is not None
-        ):
+        if PRETRAINED and mode is Mode.TRAIN and self.weights is not None:
             logger.info('Set weights to %s' % self.weights)
             self.load_weights_partial(model, self.weights)
         return model
