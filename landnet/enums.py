@@ -58,7 +58,7 @@ class GeomorphometricalVariable(Enum):
     WIND_EXPOSITION_INDEX = 'wind'
 
     @classmethod
-    def from_file(cls, path: Path) -> list[Enum]:
+    def parse_file(cls, path: Path) -> list[GeomorphometricalVariable]:
         with path.open(mode='r') as file:
             return [
                 cls._member_map_[variable.strip().split('.')[1]]
