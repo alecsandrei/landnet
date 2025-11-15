@@ -66,17 +66,15 @@ class SavePredictions(tune.Callback):
         self.variables = variables
         super().__init__(**kwargs)
 
-    def _get_best_result(self, trials: t.List[Trial]):
-        analysis = ExperimentAnalysis(
-            trials[0].local_experiment_path,
-            trials=trials,
-            default_metric=self.sorter.metric,
-            default_mode=self.sorter.mode,
-        )
-        results = tune.ResultGrid(analysis)
-        return results.get_best_result(
-            metric=self.sorter.metric, mode=self.sorter.mode, scope='all'
-        )
+    def _get_best_result(self, trials: t.List[Trial]) -> Result:
+        trial_path = trials[0].path
+        if trial_path is None:
+            raise FileNotFoundError(
+                'Could not find the trial path of %r' % trials[0]
+            )
+        experiment_dir = Path(trial_path).parent
+        logger.debug('Finding best result of experiment at %s' % experiment_dir)
+        return get_best_result_from_experiment(experiment_dir, self.sorter)
 
     def get_best_checkpoint(self, result: Result) -> Path:
         ckpt = t.cast(
