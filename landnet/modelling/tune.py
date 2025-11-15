@@ -1,28 +1,39 @@
 from __future__ import annotations
 
 import collections.abc as c
+import os
+import shutil
 import typing as t
 from pathlib import Path
 
+import pandas as pd
 from ray import train, tune
 from ray.train import Checkpoint, CheckpointConfig
 from ray.train.torch import TorchTrainer
-from ray.tune import ExperimentAnalysis, Result
+from ray.tune import ExperimentAnalysis, Result, ResultGrid
 from ray.tune.experiment import Trial
 from ray.tune.search.hyperopt import HyperOptSearch
 
 from landnet.config import (
     GPUS,
+    MODELS_DIR,
     NUM_SAMPLES,
     OVERLAP,
     SEED,
     TEMP_RAY_TUNE_DIR,
     TILE_SIZE,
+    TRIAL_NAME,
+    save_vars_as_json,
 )
-from landnet.enums import GeomorphometricalVariable
+from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.tiles import TileConfig, TileSize
 from landnet.logger import create_logger
-from landnet.modelling.classification.inference import InferTrainTest
+from landnet.modelling.classification.inference import (
+    InferTrainTest,
+    has_predictions,
+    save_predictions,
+)
+from landnet.typing import TuneSpace
 
 logger = create_logger(__name__)
 
@@ -42,7 +53,9 @@ def get_tune_space():
     }
 
 
-class SaveTrial(tune.Callback):
+class SavePredictions(tune.Callback):
+    """Computes the predictions for train, validation and test with the best checkpoint."""
+
     def __init__(
         self,
         sorter: MetricSorter,
