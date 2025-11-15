@@ -36,14 +36,16 @@ class LandslideImageClassifier(pl.LightningModule):
         self.config = config
         self.model = model
         self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([2]))
-        # self.criterion = nn.BCEWithLogitsLoss()
         self.train_metrics = BinaryClassificationMetricCollection(
-            prefix='train_'
+            prefix=f'{Mode.TRAIN.value}_'
         )
 
-        self.val_metrics = self.train_metrics.clone(prefix='val_')
-        self.test_metrics = self.train_metrics.clone(prefix='test_')
-        self.predict_metrics = self.train_metrics.clone(prefix='predict_')
+        self.validation_metrics = self.train_metrics.clone(
+            prefix=f'{Mode.VALIDATION.value}_'
+        )
+        self.test_metrics = self.train_metrics.clone(
+            prefix=f'{Mode.TEST.value}_'
+        )
 
     @classmethod
     def load_from_checkpoint(
@@ -92,32 +94,32 @@ class LandslideImageClassifier(pl.LightningModule):
         logits = self.forward(x)
         self.train_metrics.update(torch.sigmoid(logits), y)
         loss = self.criterion(logits, y.float())
-        self.log('train_loss', loss, sync_dist=True)
+        self.log('train_loss', loss)
+        self.log_dict(self.train_metrics.compute(), on_step=True)
         return loss
 
     def on_train_epoch_end(self):
-        self.log_dict(self.train_metrics.compute(), sync_dist=True)
         self.train_metrics.reset()
 
     def validation_step(self, val_batch, batch_idx):
         x, y = val_batch
         logits = self.forward(x)
-        self.val_metrics.update(torch.sigmoid(logits), y)
+        self.validation_metrics.update(torch.sigmoid(logits), y)
         loss = self.criterion(logits, y.float())
-        self.log('val_loss', loss, sync_dist=True)
+        self.log('validation_loss', loss, sync_dist=True)
         return loss
+
+    def on_validation_epoch_end(self):
+        self.log_dict(self.validation_metrics.compute(), sync_dist=True)
+        self.validation_metrics.reset()
 
     def test_step(self, test_batch, batch_idx):
         x, y = test_batch
         logits = self.forward(x)
         self.test_metrics.update(torch.sigmoid(logits), y)
         loss = self.criterion(logits, y.float())
-        self.log_dict(self.test_metrics.compute(), sync_dist=True)
         self.log('test_loss', loss, sync_dist=True)
-
-    def on_validation_epoch_end(self):
-        self.log_dict(self.val_metrics.compute(), sync_dist=True)
-        self.val_metrics.reset()
+        self.log_dict(self.test_metrics.compute(), sync_dist=True)
 
     def configure_optimizers(self):
         assert 'learning_rate' in self.config
