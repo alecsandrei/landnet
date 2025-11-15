@@ -170,7 +170,7 @@ def get_tuner(
                 checkpoint_score_attribute=sorter.metric,
                 checkpoint_score_order=sorter.mode,
             ),
-            callbacks=[SaveTrial(sorter, variables)],  # type: ignore
+            callbacks=[SavePredictions(sorter, variables)],  # type: ignore
             storage_path=TEMP_RAY_TUNE_DIR.as_posix(),
         )
 
