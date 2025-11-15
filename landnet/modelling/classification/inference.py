@@ -16,18 +16,21 @@ import pandas as pd
 import torch
 import torchvision.transforms.functional as F
 from torch.utils.data import DataLoader, Dataset
-from torchvision.transforms import CenterCrop, Compose, Lambda, Normalize
+from torchvision.transforms import CenterCrop, Compose, Lambda
 
 from landnet.config import (
     ARCHITECTURE,
+    BATCH_SIZE,
     GRIDS,
     LANDSLIDE_DENSITY_THRESHOLD,
+    TILE_SIZE,
 )
 from landnet.enums import GeomorphometricalVariable, LandslideClass, Mode
 from landnet.features.dataset import logits_to_dem_tiles
 from landnet.features.grids import Grid
 from landnet.features.tiles import (
     TileConfig,
+    TileSize,
 )
 from landnet.logger import create_logger
 from landnet.modelling import torch_clear
@@ -143,9 +146,10 @@ class InferTrainTest:
         self,
         classifier: LandslideImageClassifier,
         mode: Mode,
-        tune_space: TuneSpace,
+        tile_config: TileConfig,
     ) -> None:
-        tile_config = TileConfig(tune_space['tile_config'].size, 0)
+        if tile_config.overlap != 0:
+            tile_config = TileConfig(tile_config.size, 0)
         images = ConcatLandslideImageClassification(
             [
                 get_landslide_images(variable, tile_config, mode)
@@ -155,7 +159,7 @@ class InferTrainTest:
         loader = DataLoader(
             images,
             shuffle=False,
-            batch_size=tune_space['batch_size'],
+            batch_size=BATCH_SIZE,
             num_workers=4,
             prefetch_factor=4,
             persistent_workers=True,
@@ -170,15 +174,16 @@ class InferTrainTest:
         self,
         checkpoint_path: os.PathLike | str,
         tune_space: TuneSpace,
-        modes: tuple[Mode, ...] = (Mode.TEST,),
+        modes: tuple[Mode, ...] | None = None,
     ) -> None:
+        if modes is None:
+            modes = (Mode.TEST,)
         torch_clear()
         tune_space_copy = tune_space.copy()
-        # tune_space_copy['batch_size'] = 1
         classifier = LandslideImageClassifier.load_from_checkpoint(
             checkpoint_path,
             model=get_architecture(ARCHITECTURE)(
-                len(self.variables), Mode.INFERENCE
+                len(self.variables), Mode.TEST
             ),
             config=tune_space_copy,
             strict=False,
@@ -187,7 +192,31 @@ class InferTrainTest:
             'Loaded classifier with model architecture %s' % ARCHITECTURE
         )
         for mode in modes:
-            self._handle_mode(classifier, mode, tune_space)
+            self._handle_mode(classifier, mode, tune_space['tile_config'])
+
+
+def has_predictions(checkpoint: Path) -> bool:
+    return all(
+        (checkpoint.parent / 'predictions' / mode.value).exists()
+        for mode in (Mode.VALIDATION, Mode.TEST, Mode.TRAIN)
+    )
+
+
+def save_predictions(
+    variables: list[GeomorphometricalVariable], checkpoint: Path
+):
+    infer = InferTrainTest(
+        variables=variables, out_dir=checkpoint.parent / 'predictions'
+    )
+    tune_space: TuneSpace = {
+        'batch_size': BATCH_SIZE,
+        'tile_config': TileConfig(TileSize(TILE_SIZE, TILE_SIZE), overlap=0),
+    }
+    infer.handle_checkpoint(
+        checkpoint,
+        tune_space,
+        modes=(Mode.TRAIN, Mode.TEST, Mode.VALIDATION),
+    )
 
 
 @dataclass
@@ -289,10 +318,9 @@ class Pad:
 def get_inference_transform() -> Compose:
     return Compose(
         [
-            Pad(100),
-            CenterCrop((100, 100)),
-            ResizeTensor([224, 224]),
+            Pad(TILE_SIZE),
+            CenterCrop((TILE_SIZE, TILE_SIZE)),
             Lambda(lambda x: (x - x.min()) / (x.max() - x.min())),
-            Normalize(mean=0.5, std=0.5),
+            ResizeTensor([224, 224]),
         ]
     )
