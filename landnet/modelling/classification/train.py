@@ -72,7 +72,6 @@ def train_model(
             % (variables, experiment_dir)
         )
         return get_best_result_from_experiment(experiment_dir, sorter)
-    # try:
     tuner = get_tuner(
         train_func,
         func_kwds={
