@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import collections.abc as c
 import typing as t
+from dataclasses import dataclass
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -89,3 +91,65 @@ def get_roc_curve(logits: np.ndarray, targets: np.ndarray, ax: Axes):
         plot_chance_level=True,
         ax=ax,
     )
+
+
+@dataclass
+class ExperimentsResultPlot:
+    df: pd.DataFrame
+
+    def make_long(
+        self, value_vars: c.Sequnece[str], var_name: str
+    ) -> pd.DataFrame:
+        return self.df.melt(
+            id_vars='model',
+            value_vars=value_vars,
+            var_name=var_name,
+            value_name='value',
+        )
+
+    def model_line_plot(
+        self, value_vars: c.Sequence[str], ax: Axes | None = None
+    ) -> Axes:
+        if ax is None:
+            _, ax = plt.subplots(figsize=(10, 7))
+        long_df = self.make_long(value_vars, var_name='metric')
+        sns.lineplot(long_df, x='model', y='value', hue='metric', ax=ax)
+        return ax
+
+    def model_bar_plot(
+        self, value_vars: c.Sequence[str], ax: Axes | None = None
+    ) -> Axes:
+        if ax is None:
+            _, ax = plt.subplots(figsize=(10, 7))
+        long_df = self.make_long(value_vars, var_name='metric')
+        order = (
+            long_df[long_df['metric'] == value_vars[0]]
+            .sort_values('value', ascending=False)['model']
+            .tolist()
+        )
+        long_df['metric'] = pd.Categorical(
+            long_df['metric'], categories=value_vars, ordered=True
+        )
+        long_df['metric'] = long_df['metric'].str.replace('_', ' ').str.title()
+        long_df['model'] = pd.Categorical(
+            long_df['model'], categories=order, ordered=True
+        )
+        sns.barplot(
+            long_df,
+            x='value',
+            hue='metric',
+            y='model',
+            dodge=True,
+            orient='y',
+            ax=ax,
+        )
+        for container in ax.containers:
+            ax.bar_label(container, fmt='%.4f', padding=3, fontsize=8)  # type: ignore
+        ax.legend()
+        ax.set_xlabel('Metric')
+        ax.set_ylabel('Model')
+        ax.set_xlim(long_df['value'].min() - 0.05, 1)
+        ax.margins(y=0.01)
+
+        plt.tight_layout()
+        return ax
