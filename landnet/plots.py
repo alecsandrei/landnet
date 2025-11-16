@@ -98,7 +98,7 @@ class ExperimentsResultPlot:
     df: pd.DataFrame
 
     def make_long(
-        self, value_vars: c.Sequnece[str], var_name: str
+        self, value_vars: c.Sequence[str], var_name: str
     ) -> pd.DataFrame:
         return self.df.melt(
             id_vars='model',
