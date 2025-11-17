@@ -113,7 +113,9 @@ class ExperimentsResultPlot:
         if ax is None:
             _, ax = plt.subplots(figsize=(10, 7))
         long_df = self.make_long(value_vars, var_name='metric')
+        long_df['metric'] = long_df['metric'].str.replace('_', ' ').str.title()
         sns.lineplot(long_df, x='model', y='value', hue='metric', ax=ax)
+        ax.legend().set_title('')
         return ax
 
     def model_bar_plot(
