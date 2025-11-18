@@ -95,52 +95,68 @@ def get_roc_curve(logits: np.ndarray, targets: np.ndarray, ax: Axes):
 
 @dataclass
 class ExperimentsResultPlot:
-    df: pd.DataFrame
+    data: pd.DataFrame
 
-    def make_long(
-        self, value_vars: c.Sequence[str], var_name: str
-    ) -> pd.DataFrame:
-        return self.df.melt(
-            id_vars='model',
-            value_vars=value_vars,
-            var_name=var_name,
-            value_name='value',
+    @classmethod
+    def from_df(
+        cls, df: pd.DataFrame, value_vars: c.Sequence[str], var_name: str
+    ) -> t.Self:
+        return cls(
+            df.melt(
+                id_vars='model',
+                value_vars=value_vars,
+                var_name=var_name,
+                value_name='value',
+            )
         )
 
+    @classmethod
+    def with_data(cls, data: pd.DataFrame) -> t.Self:
+        return cls(data)
+
     def model_line_plot(
-        self, value_vars: c.Sequence[str], ax: Axes | None = None
-    ) -> Axes:
-        if ax is None:
-            _, ax = plt.subplots(figsize=(10, 7))
-        long_df = self.make_long(value_vars, var_name='metric')
-        long_df['metric'] = long_df['metric'].str.replace('_', ' ').str.title()
-        sns.lineplot(long_df, x='model', y='value', hue='metric', ax=ax)
-        ax.legend().set_title('')
+        self,
+        x: str,
+        hue: str | None = None,
+        ax: Axes | None = None,
+        **lineplot_kws,
+    ) -> Axes | None:
+        if hue is not None:
+            self.data[hue] = self.data[hue].str.replace('_', ' ').str.title()
+        sns.lineplot(
+            self.data,
+            x=x,
+            y='value',
+            hue=hue,
+            ax=ax,
+            **lineplot_kws,
+        )
         return ax
 
     def model_bar_plot(
-        self, value_vars: c.Sequence[str], ax: Axes | None = None
+        self, hue: str, y: str, hue_sort_by: str, ax: Axes | None = None
     ) -> Axes:
         if ax is None:
             _, ax = plt.subplots(figsize=(10, 7))
-        long_df = self.make_long(value_vars, var_name='metric')
         order = (
-            long_df[long_df['metric'] == value_vars[0]]
-            .sort_values('value', ascending=False)['model']
+            self.data[self.data[hue] == hue_sort_by]
+            .sort_values('value', ascending=False)[y]
             .tolist()
         )
-        long_df['metric'] = pd.Categorical(
-            long_df['metric'], categories=value_vars, ordered=True
+        self.data[hue] = pd.Categorical(
+            self.data[hue],
+            categories=self.data[hue].unique(),
+            ordered=True,
         )
-        long_df['metric'] = long_df['metric'].str.replace('_', ' ').str.title()
-        long_df['model'] = pd.Categorical(
-            long_df['model'], categories=order, ordered=True
+        self.data[hue] = self.data[hue].str.replace('_', ' ').str.title()
+        self.data[y] = pd.Categorical(
+            self.data[y], categories=order, ordered=True
         )
         sns.barplot(
-            long_df,
+            self.data,
             x='value',
-            hue='metric',
-            y='model',
+            hue=hue,
+            y=y,
             dodge=True,
             orient='y',
             ax=ax,
@@ -148,9 +164,9 @@ class ExperimentsResultPlot:
         for container in ax.containers:
             ax.bar_label(container, fmt='%.4f', padding=3, fontsize=8)  # type: ignore
         ax.legend()
-        ax.set_xlabel('Metric')
-        ax.set_ylabel('Model')
-        ax.set_xlim(long_df['value'].min() - 0.05, 1)
+        ax.set_xlabel(hue.title())
+        ax.set_ylabel(y.title())
+        ax.set_xlim(self.data['value'].min() - 0.05, 1)
         ax.margins(y=0.01)
 
         plt.tight_layout()
