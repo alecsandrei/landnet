@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import random
-
-import numpy as np
-import torch
-
-from landnet.config import LOGGING_ENABLED, SEED
+from landnet.config import (
+    LOGGING_ENABLED,
+    SEED,
+    TORCH_GEN,
+    seed_worker,
+    set_random_seed,
+)
 from landnet.logger import (
     ErrorFilter,
     JSONFormatter,
@@ -13,23 +14,15 @@ from landnet.logger import (
     setup_logging,
 )
 
-__all__ = ['ErrorFilter', 'JSONFormatter', 'NonErrorFilter']
-
-
-# Reproducibility
-def seed_worker(worker_id):
-    worker_seed = torch.initial_seed() % 2**32
-    np.random.seed(worker_seed)
-    random.seed(worker_seed)
-
-
-TORCH_GEN = torch.Generator()
-TORCH_GEN.manual_seed(SEED)
-
-torch.use_deterministic_algorithms(True)
-torch.manual_seed(SEED)
-random.seed(SEED)
-np.random.seed(SEED)
+__all__ = [
+    'ErrorFilter',
+    'JSONFormatter',
+    'NonErrorFilter',
+    'TORCH_GEN',
+    'seed_worker',
+    'set_random_seed',
+    'SEED',
+]
 
 
 if LOGGING_ENABLED:
