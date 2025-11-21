@@ -146,6 +146,7 @@ def get_trainer():
         enable_progress_bar=False,
         max_epochs=EPOCHS,
         precision=16,
+        log_every_n_steps=5,
     )
 
 
