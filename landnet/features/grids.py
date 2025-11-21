@@ -3,7 +3,7 @@ from __future__ import annotations
 import collections.abc as c
 import concurrent.futures
 import typing as t
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
@@ -503,17 +503,16 @@ class TerrainAnalysis:
         )
 
 
-@dataclass
+@dataclass(frozen=True, eq=True)
 class Grid:
     path: Path
     tile_config: TileConfig
     mode: Mode
     landslides: gpd.GeoSeries | None = None
-    tile_handler: TileHandler = field(init=False)
 
-    def __post_init__(self):
-        if self.tile_config:
-            self.tile_handler = TileHandler(self.tile_config)
+    @property
+    def tile_handler(self) -> TileHandler:
+        return TileHandler(self.tile_config)
 
     def get_tiles_length(self) -> int:
         assert self.tile_handler is not None
@@ -750,7 +749,6 @@ def get_grid_types(
         'Creating tiles with %r for all of the geomorphometrical variables'
         % tile_config
     )
-    # results = [func(variable) for variable in GeomorphometricalVariable]
     with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
         results = executor.map(func, GeomorphometricalVariable)
     return {variable: image_folders for variable, image_folders in results}

@@ -60,7 +60,7 @@ class TileConfig:
     overlap: int = 0
 
 
-@dataclass
+@dataclass(frozen=True, eq=True)
 class TileHandler:
     config: TileConfig
 
