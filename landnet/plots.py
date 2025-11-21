@@ -99,11 +99,17 @@ class ExperimentsResultPlot:
 
     @classmethod
     def from_df(
-        cls, df: pd.DataFrame, value_vars: c.Sequence[str], var_name: str
+        cls,
+        df: pd.DataFrame,
+        value_vars: c.Sequence[str],
+        var_name: str,
+        id_vars: c.Sequence[str] | None = None,
     ) -> t.Self:
+        if id_vars is None:
+            id_vars = ['model']
         return cls(
             df.melt(
-                id_vars='model',
+                id_vars=id_vars,
                 value_vars=value_vars,
                 var_name=var_name,
                 value_name='value',
