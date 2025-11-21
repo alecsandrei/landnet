@@ -15,10 +15,10 @@ from ray.tune.experiment import Trial
 from ray.tune.search.hyperopt import HyperOptSearch
 
 from landnet.config import (
+    BATCH_SIZE,
     GPUS,
     NUM_SAMPLES,
     OVERLAP,
-    SEED,
     TEMP_RAY_TUNE_DIR,
     TILE_SIZE,
     save_vars_as_json,
@@ -43,8 +43,8 @@ class MetricSorter(t.NamedTuple):
 
 def get_tune_space() -> ModelConfig:
     return {
-        'learning_rate': tune.loguniform(1e-6, 1e-4),
-        'batch_size': tune.choice([2, 4, 8]),
+        'learning_rate': tune.loguniform(1e-6, 1e-3),
+        'batch_size': tune.choice([BATCH_SIZE]),
         'tile_config': tune.choice(
             [TileConfig(TileSize.from_size(TILE_SIZE), OVERLAP)]
         ),
@@ -159,6 +159,7 @@ def get_tuner(
     variables: c.Sequence[GeomorphometricalVariable],
     trial_dir: Path,
     run_config_kwargs: dict[str, t.Any],
+    hyperopt_seed: int | None = None,
 ) -> tune.Tuner:
     def get_run_config():
         return train.RunConfig(
@@ -176,7 +177,9 @@ def get_tuner(
         return tune.TuneConfig(
             num_samples=NUM_SAMPLES,
             search_alg=HyperOptSearch(
-                metric=sorter.metric, mode=sorter.mode, random_state_seed=SEED
+                metric=sorter.metric,
+                mode=sorter.mode,
+                random_state_seed=hyperopt_seed,
             ),
         )
 

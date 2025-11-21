@@ -16,6 +16,7 @@ from ray.train.lightning import (
 from ray.tune import Result
 from torch import nn
 
+from landnet import RandomSeedContext
 from landnet.config import (
     ARCHITECTURE,
     EPOCHS,
@@ -64,7 +65,9 @@ def train_model(
     model_name: str,
     variables: c.Sequence[GeomorphometricalVariable],
     sorter: MetricSorter,
+    random_seed: int | None = None,
     out_dir: Path | None = None,
+    hyperopt_seed: int | None = None,
 ) -> Result | None:
     os.makedirs(TEMP_RAY_TUNE_DIR, exist_ok=True)
     if out_dir is None:
@@ -80,10 +83,12 @@ def train_model(
         func_kwds={
             'model': get_architecture(ARCHITECTURE),
             'variables': variables,
+            'random_seed': random_seed,
         },
         sorter=sorter,
         variables=variables,
         trial_dir=TEMP_RAY_TUNE_DIR / model_name,
+        hyperopt_seed=hyperopt_seed,
         run_config_kwargs={'name': model_name},
     )
     results = tuner.fit()
@@ -109,8 +114,11 @@ def train_func(
     config: ModelConfig,
     variables: c.Sequence[GeomorphometricalVariable],
     model: c.Callable[[int, Mode], nn.Module],
+    random_seed: int | None = None,
     **kwargs,
 ):
+    if random_seed is not None:
+        config['random_seed_context'] = RandomSeedContext(random_seed)
     train_dataset, validation_dataset, test_dataset = get_datasets(
         config, variables, return_test=False
     )

@@ -8,8 +8,8 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from landnet import seed_worker
-from landnet.config import BATCH_SIZE
+from landnet import RandomSeedContext, seed_worker
+from landnet.config import BATCH_SIZE, TRAIN_NUM_SAMPLES
 from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.features.grids import get_grid_for_variable
 from landnet.logger import create_logger
@@ -23,10 +23,7 @@ from landnet.modelling.segmentation.dataset import (
 from landnet.modelling.segmentation.stats import SegmentationMetricCollection
 
 if t.TYPE_CHECKING:
-    from landnet.typing import (
-        AnyLandslideSegmentationDataset,
-        ModelConfig,
-    )
+    from landnet.typing import AnyLandslideSegmentationDataset, ModelConfig
 
 logger = create_logger(__name__)
 
@@ -126,14 +123,19 @@ class LandslideImageSegmenter(pl.LightningModule):
         )
         return loss
 
-    def on_train_epoch_end(self):
-        self.log_dict(
-            self.train_metrics.compute(),
-            sync_dist=True,
-            prog_bar=True,
-            logger=True,
-            on_epoch=True,
+    def on_train_epoch_start(self):
+        # We do not want the same augmentation each epoch so we change the seed
+        random_seed_context: RandomSeedContext | None = self.config.get(
+            'random_seed_context', None
         )
+        if random_seed_context is not None:
+            random_seed_context.set_random_seed(random_seed_context.seed + 1)
+            logger.info(
+                'Set seed to %i in on_train_epoch_start'
+                % random_seed_context.seed
+            )
+
+    def on_train_epoch_end(self):
         self.train_metrics.reset()
 
     def validation_step(self, val_batch, batch_idx):
@@ -279,9 +281,9 @@ class LandslideImageSegmentationDataModule(pl.LightningDataModule):
         )
         return get_weighted_segmentation_dataloader(
             self.train_dataset,
-            # size=len(self.train_dataset),
-            size=500,
+            size=TRAIN_NUM_SAMPLES,
             batch_size=self.config['batch_size'],
+            random_seed_context=self.config.get('random_seed_context', None),
             num_workers=4,
             prefetch_factor=4,  # Load 4 batches ahead
             persistent_workers=True,  # Keeps workers alive

@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset, Subset, WeightedRandomSampler
 
-from landnet import TORCH_GEN
+from landnet import RandomSeedContext
 from landnet.config import LANDSLIDE_DENSITY_THRESHOLD
 from landnet.enums import LandslideClass, Mode
 from landnet.logger import create_logger
@@ -133,9 +133,13 @@ def get_classification_dataloader(
     dataset: Dataset,
     weights: np.ndarray | None = None,
     size: int | None = None,
+    random_seed_context: RandomSeedContext | None = None,
     **kwargs,
 ):
     sampler = None
+    generator = None
+    if random_seed_context is not None:
+        generator = random_seed_context.get_torch_generator()
     if weights is not None:
         replacement = True
         samples_weight = torch.tensor(weights, dtype=torch.double)
@@ -143,9 +147,14 @@ def get_classification_dataloader(
             samples_weight,  # type: ignore
             num_samples=size or samples_weight.numel(),
             replacement=replacement,
-            generator=TORCH_GEN,
+            generator=generator,
         )
-    return DataLoader(dataset, **kwargs, generator=TORCH_GEN, sampler=sampler)
+    return DataLoader(
+        dataset,
+        **kwargs,
+        generator=generator,
+        sampler=sampler,
+    )
 
 
 def create_classification_dataloader_from_subset(
@@ -191,6 +200,7 @@ def create_classification_dataloader(
     | Subset[LandslideImageClassification | ConcatLandslideImageClassification],
     class_balance: dict[LandslideClass, float] | None = None,
     size: int | None = None,
+    random_seed_context: RandomSeedContext | None = None,
     **kwargs,
 ) -> DataLoader:
     if isinstance(dataset, Subset):
@@ -219,5 +229,9 @@ def create_classification_dataloader(
             class_weight *= class_balance[LandslideClass(cls)]
         samples_weight[indices] = [class_weight] * len(indices)
     return get_classification_dataloader(
-        dataset, weights=samples_weight, size=size, **kwargs
+        dataset,
+        weights=samples_weight,
+        size=size,
+        random_seed_context=random_seed_context,
+        **kwargs,
     )

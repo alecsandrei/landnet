@@ -8,7 +8,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from landnet import seed_worker
+from landnet import RandomSeedContext, seed_worker
 from landnet.config import BATCH_SIZE, DEFAULT_CLASS_BALANCE, TRAIN_NUM_SAMPLES
 from landnet.enums import GeomorphometricalVariable, Mode
 from landnet.logger import create_logger
@@ -89,6 +89,18 @@ class LandslideImageClassifier(pl.LightningModule):
     def forward(self, x):
         return self.model(x).flatten()
 
+    def on_train_epoch_start(self):
+        # We do not want the same augmentation each epoch so we change the seed
+        random_seed_context: RandomSeedContext | None = self.config.get(
+            'random_seed_context', None
+        )
+        if random_seed_context is not None:
+            random_seed_context.set_random_seed(random_seed_context.seed + 1)
+            logger.info(
+                'Set seed to %i in on_train_epoch_start'
+                % random_seed_context.seed
+            )
+
     def training_step(self, train_batch, batch_idx):
         x, y = train_batch
         logits = self.forward(x)
@@ -137,6 +149,7 @@ class LandslideImageDataModule(pl.LightningDataModule):
         train_dataset: AnyLandslideClassificationDataset | None = None,
         validation_dataset: AnyLandslideClassificationDataset | None = None,
         test_dataset: LandslideClassificationDataset | None = None,
+        random_seed_context: RandomSeedContext | None = None,
     ):
         super().__init__()
         self.config = config
@@ -144,6 +157,7 @@ class LandslideImageDataModule(pl.LightningDataModule):
         self.train_dataset = train_dataset
         self.validation_dataset = validation_dataset
         self.test_dataset = test_dataset
+        self.random_seed_context = random_seed_context
 
     def setup(self, stage=None): ...
 
@@ -156,6 +170,7 @@ class LandslideImageDataModule(pl.LightningDataModule):
         return create_classification_dataloader(
             self.train_dataset,
             batch_size=self.config['batch_size'],
+            random_seed_context=self.config.get('random_seed_context', None),
             num_workers=4,
             prefetch_factor=4,  # Load 4 batches ahead
             persistent_workers=True,  # Keeps workers alive

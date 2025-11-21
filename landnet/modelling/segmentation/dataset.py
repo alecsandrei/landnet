@@ -13,7 +13,7 @@ from torch.utils.data import (
     WeightedRandomSampler,
 )
 
-from landnet import TORCH_GEN
+from landnet import RandomSeedContext
 from landnet.config import LANDSLIDE_DENSITY_THRESHOLD
 from landnet.enums import Mode
 from landnet.logger import create_logger
@@ -115,28 +115,48 @@ def get_weights(dataset: ConcatLandslideImageSegmentation) -> np.ndarray:
 
 
 def get_weighted_segmentation_dataloader(
-    dataset: ConcatLandslideImageSegmentation, size: int, **kwargs
+    dataset: ConcatLandslideImageSegmentation,
+    size: int,
+    random_seed_context: RandomSeedContext | None = None,
+    **kwargs,
 ) -> DataLoader:
+    generator = None
+    if random_seed_context is not None:
+        generator = random_seed_context.get_torch_generator()
     sampler = WeightedRandomSampler(
         get_weights(dataset).tolist(),
         num_samples=size,
         replacement=True,
-        generator=TORCH_GEN,
+        generator=generator,
     )
     dataloader = DataLoader(
-        dataset, generator=TORCH_GEN, **kwargs, sampler=sampler
+        dataset,
+        generator=generator,
+        **kwargs,
+        sampler=sampler,
     )
     return dataloader
 
 
-def get_segmentation_dataloader(dataset: Dataset, size: int, **kwargs):
+def get_segmentation_dataloader(
+    dataset: Dataset,
+    size: int,
+    random_seed_context: RandomSeedContext | None = None,
+    **kwargs,
+):
+    generator = None
+    if random_seed_context is not None:
+        generator = random_seed_context.get_torch_generator()
     sampler = RandomSampler(
         data_source=dataset,  # type: ignore
         num_samples=size,
         replacement=True,
-        generator=TORCH_GEN,
+        generator=generator,
     )
     dataloader = DataLoader(
-        dataset, generator=TORCH_GEN, **kwargs, sampler=sampler
+        dataset,
+        generator=generator,
+        **kwargs,
+        sampler=sampler,
     )
     return dataloader
