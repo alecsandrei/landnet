@@ -145,6 +145,7 @@ def get_trainer():
         plugins=[RayLightningEnvironment()],
         enable_progress_bar=False,
         max_epochs=EPOCHS,
+        precision=16,
     )
 
 
