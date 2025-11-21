@@ -84,8 +84,8 @@ def get_default_transform(size: int = 224):
         [
             ToImage(),
             ToDtype(torch.float32, scale=True),
-            Lambda(lambda x: (x - x.amin()) / (x.amax() - x.amin())),
             ResizeTensor([size, size]),
+            Lambda(lambda x: (x - x.mean()) / x.std()),
         ]
     )
 
