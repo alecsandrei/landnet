@@ -104,10 +104,22 @@ class LandslideImageClassifier(pl.LightningModule):
     def training_step(self, train_batch, batch_idx):
         x, y = train_batch
         logits = self.forward(x)
-        self.train_metrics.update(torch.sigmoid(logits), y)
         loss = self.criterion(logits, y.float())
-        self.log('train_loss', loss)
-        self.log_dict(self.train_metrics.compute(), on_step=True)
+
+        # Log step metrics
+        self.log(
+            f'{Mode.TRAIN.value}_loss',
+            loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
+        preds = torch.sigmoid(logits)
+        self.train_metrics.update(preds, y)
+        metrics = self.train_metrics.compute()
+        self.log_dict(metrics, on_step=False, on_epoch=True, sync_dist=True)
+
         return loss
 
     def on_train_epoch_end(self):
@@ -116,13 +128,27 @@ class LandslideImageClassifier(pl.LightningModule):
     def validation_step(self, val_batch, batch_idx):
         x, y = val_batch
         logits = self.forward(x)
-        self.validation_metrics.update(torch.sigmoid(logits), y)
         loss = self.criterion(logits, y.float())
-        self.log('validation_loss', loss, sync_dist=True)
+
+        # Update metrics
+        self.validation_metrics.update(torch.sigmoid(logits), y)
+
+        # Log per batch if needed (optional), mostly we care about epoch
+        self.log(
+            f'{Mode.VALIDATION.value}_loss',
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+        )
+
+        # Compute and log metrics at epoch level
+        metrics = self.validation_metrics.compute()
+        self.log_dict(metrics, on_step=False, on_epoch=True, sync_dist=True)
+
         return loss
 
     def on_validation_epoch_end(self):
-        self.log_dict(self.validation_metrics.compute(), sync_dist=True)
         self.validation_metrics.reset()
 
     def test_step(self, test_batch, batch_idx):

@@ -121,6 +121,18 @@ class LandslideImageSegmenter(pl.LightningModule):
         self.train_metrics.update(
             self._one_hot_encode(output, output_mask), mask
         )
+        # Logs
+        metrics = self.train_metrics.compute()
+        self.log(
+            f'{Mode.TRAIN.value}_loss',
+            loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
+        self.log_dict(metrics, on_step=False, on_epoch=True, sync_dist=True)
+
         return loss
 
     def on_train_epoch_start(self):
@@ -148,13 +160,16 @@ class LandslideImageSegmenter(pl.LightningModule):
         loss = self.criterion(output, mask.float())
         output_mask = output.argmax(dim=1)
         self.val_metrics.update(self._one_hot_encode(output, output_mask), mask)
+        # Logs
+        metrics = self.val_metrics.compute()
         self.log(
-            'val_loss',
+            f'{Mode.VALIDATION.value}_loss',
             loss,
-            sync_dist=True,
+            on_step=False,
+            on_epoch=True,
             prog_bar=True,
-            logger=True,
         )
+        self.log_dict(metrics, on_step=False, on_epoch=True, sync_dist=True)
         return loss
 
     def test_step(self, test_batch, batch_idx):
@@ -187,12 +202,6 @@ class LandslideImageSegmenter(pl.LightningModule):
         )
 
     def on_validation_epoch_end(self):
-        self.log_dict(
-            self.val_metrics.compute(),
-            sync_dist=True,
-            prog_bar=True,
-            logger=True,
-        )
         self.val_metrics.reset()
 
     def configure_optimizers(self):
