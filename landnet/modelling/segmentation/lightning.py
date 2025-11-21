@@ -39,18 +39,8 @@ class LandslideImageSegmenter(pl.LightningModule):
         self.train_metrics = SegmentationMetricCollection(
             num_classes=num_classes, prefix='train_'
         )
-        # self.train_metrics.add_metrics(
-        #    {
-        #        name: metric
-        #        for name, metric in BinaryClassificationMetricCollection(
-        #            prefix='train_'
-        #        ).items()
-        #    }
-        # )
-
         self.val_metrics = self.train_metrics.clone(prefix='val_')
         self.test_metrics = self.train_metrics.clone(prefix='test_')
-        self.predict_metrics = self.train_metrics.clone(prefix='predict_')
 
     @classmethod
     def load_from_checkpoint(
