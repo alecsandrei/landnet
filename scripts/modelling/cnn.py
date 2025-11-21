@@ -25,7 +25,7 @@ from landnet.modelling.dataset import (
     get_default_transform,
 )
 from landnet.modelling.tune import MetricSorter
-from landnet.typing import TuneSpace
+from landnet.typing import ModelConfig
 
 if GPUS:
     torch_clear()
@@ -34,14 +34,14 @@ if GPUS:
 logger = create_logger(__name__)
 
 TRAIN_TILE_CONFIG = TileConfig(TileSize(TILE_SIZE, TILE_SIZE), overlap=OVERLAP)
-TRAIN_MODEL_CONFIG: TuneSpace = {
+TRAIN_MODEL_CONFIG: ModelConfig = {
     'batch_size': 8,
     'learning_rate': 3.146057909839248e-05,
     'tile_config': TRAIN_TILE_CONFIG,
 }
 
 TEST_TILE_CONFIG = TileConfig(TileSize(TILE_SIZE, TILE_SIZE), overlap=0)
-TEST_MODEL_CONFIG: TuneSpace = {
+TEST_MODEL_CONFIG: ModelConfig = {
     'batch_size': 4,
     'tile_config': TEST_TILE_CONFIG,
 }
