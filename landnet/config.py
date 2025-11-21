@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import contextlib
 import json
 import os
-import random
 import typing as t
 import uuid
 from pathlib import Path
-
-import numpy as np
-import torch
 
 from landnet.enums import Architecture, LandslideClass
 
@@ -44,7 +39,7 @@ NODATA = float(os.getenv('NODATA', -32767.0))
 SAGAGIS_NODATA = float(os.getenv('SAGAGIS_NODATA', -99999))
 
 # Model configs
-SEED = 0
+INIT_SEED = 0
 LANDSLIDE_DENSITY_THRESHOLD = float(
     os.getenv('LANDSLIDE_DENSITY_THRESHOLD', 0.05)
 )
@@ -71,69 +66,6 @@ OVERWRITE = bool(
     int(os.getenv('OVERWRITE', 0))
 )  # Whether or not to overwrite the existing models in EXPERIMENTS_NAME
 TEMP_RAY_TUNE_DIR = MODELS_DIR / 'temp_ray_tune'
-
-
-# Random seed for reproducibility
-TORCH_GEN = torch.Generator()
-
-
-def seed_worker(worker_id):
-    worker_seed = torch.initial_seed() % 2**32
-    np.random.seed(worker_seed)
-    random.seed(worker_seed)
-
-
-def set_random_seed(seed_value: int) -> None:
-    random.seed(seed_value)
-    np.random.seed(seed_value)
-    torch.manual_seed(seed_value)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed_value)
-
-    global TORCH_GEN
-    TORCH_GEN.manual_seed(seed_value)
-
-    global SEED
-    if SEED != seed_value:
-        SEED = seed_value
-
-
-def get_current_random_seed() -> int:
-    seed = random.getstate()[1][0]
-    assert seed == np.random.get_state()[1][0]  # type: ignore[index]
-    assert seed == torch.random.get_rng_state()[1]
-    return seed
-
-
-set_random_seed(SEED)
-torch.backends.cudnn.benchmark = True
-torch.backends.cudnn.deterministic = True
-
-
-@contextlib.contextmanager
-def temp_seed(seed_value: int) -> t.Generator[None, None, None]:
-    """Context manager to set the random seed temporarily."""
-
-    # Save current states
-    random_state = random.getstate()
-    np_state = np.random.get_state()
-    torch_state = torch.random.get_rng_state()
-    if torch.cuda.is_available():
-        torch_cuda_state = torch.cuda.get_rng_state_all()
-    else:
-        torch_cuda_state = None
-
-    try:
-        # Set new seed
-        set_random_seed(seed_value)
-        yield
-    finally:
-        # Restore previous states
-        random.setstate(random_state)
-        np.random.set_state(np_state)
-        torch.random.set_rng_state(torch_state)
-        if torch_cuda_state is not None:
-            torch.cuda.set_rng_state_all(torch_cuda_state)
 
 
 def save_vars_as_json(out_file: Path):
