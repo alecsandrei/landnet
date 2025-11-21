@@ -50,7 +50,7 @@ class AlexNetBuilder(ModelBuilder[AlexNet]):
         return model
 
     def _adapt_output_features(self, model: AlexNet) -> AlexNet:
-        layer = nn.Linear(4096, self.out_features, bias=True)
+        layer = nn.Linear(4096, self.out_features, bias=False)
         model.classifier[-1] = layer
         return model
 
@@ -69,7 +69,7 @@ class ResNet50Builder(ModelBuilder[ResNet]):
         )
 
     def _adapt_output_features(self, model: ResNet) -> ResNet:
-        layer = nn.Linear(2048, self.out_features, bias=True)
+        layer = nn.Linear(2048, self.out_features, bias=False)
         model.fc = layer
         return model
 
@@ -106,7 +106,7 @@ class ConvNextBuilder(ModelBuilder[ConvNeXt]):
             padding=current.padding,
             dilation=current.dilation,
             groups=current.groups,
-            bias=True,
+            bias=False,
             padding_mode=current.padding_mode,
         )
 
