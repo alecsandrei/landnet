@@ -248,3 +248,31 @@ def save_experiment(
         for var in variables:
             file.write(f'{str(var)}\n')
     save_vars_as_json(out_dir / 'config.json')
+
+
+def remove_checkpoints_except_best(
+    experiment_dir: Path, sorter: MetricSorter, scope: str = 'all'
+):
+    """Removes all checkpoints other than the best one for all experiments."""
+    experiment = ExperimentAnalysis(
+        experiment_dir,
+        default_metric=sorter.metric,
+        default_mode=sorter.mode,
+    )
+    best_result = ResultGrid(experiment).get_best_result(
+        metric=sorter.metric, mode=sorter.mode, scope=scope
+    )
+    best_checkpoint_path = (
+        Path(
+            best_result.get_best_checkpoint(
+                metric=sorter.metric, mode=sorter.mode
+            ).path
+        )
+        / 'checkpoint.ckpt'
+    )
+    for checkpoint in experiment_dir.rglob('*.ckpt'):
+        if checkpoint == best_checkpoint_path:
+            logger.info('will not delete', checkpoint)
+            continue
+        logger.info('deleting %s' % checkpoint)
+        shutil.rmtree(checkpoint.parent, ignore_errors=False)
