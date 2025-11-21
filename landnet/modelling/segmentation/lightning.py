@@ -25,7 +25,7 @@ from landnet.modelling.segmentation.stats import SegmentationMetricCollection
 if t.TYPE_CHECKING:
     from landnet.typing import (
         AnyLandslideSegmentationDataset,
-        TuneSpace,
+        ModelConfig,
     )
 
 logger = create_logger(__name__)
@@ -33,7 +33,7 @@ logger = create_logger(__name__)
 
 class LandslideImageSegmenter(pl.LightningModule):
     def __init__(
-        self, config: TuneSpace, model: nn.Module, num_classes: int = 2
+        self, config: ModelConfig, model: nn.Module, num_classes: int = 2
     ):
         super().__init__()
         self.config = config
@@ -63,7 +63,7 @@ class LandslideImageSegmenter(pl.LightningModule):
         hparams_file=None,
         strict=None,
         model: nn.Module | None = None,
-        config: TuneSpace | None = None,
+        config: ModelConfig | None = None,
         **kwargs: t.Any,
     ) -> t.Self:
         try:
@@ -204,7 +204,7 @@ class LandslideImageSegmenter(pl.LightningModule):
 class LandslideImageSegmentationDataModule(pl.LightningDataModule):
     def __init__(
         self,
-        config: TuneSpace,
+        config: ModelConfig,
         variables: c.Sequence[GeomorphometricalVariable],
         train_dataset: AnyLandslideSegmentationDataset | None = None,
         validation_dataset: AnyLandslideSegmentationDataset | None = None,

@@ -24,14 +24,14 @@ if t.TYPE_CHECKING:
     from landnet.typing import (
         AnyLandslideClassificationDataset,
         LandslideClassificationDataset,
-        TuneSpace,
+        ModelConfig,
     )
 
 logger = create_logger(__name__)
 
 
 class LandslideImageClassifier(pl.LightningModule):
-    def __init__(self, config: TuneSpace, model: nn.Module):
+    def __init__(self, config: ModelConfig, model: nn.Module):
         super().__init__()
         self.config = config
         self.model = model
@@ -55,7 +55,7 @@ class LandslideImageClassifier(pl.LightningModule):
         hparams_file=None,
         strict=None,
         model: nn.Module | None = None,
-        config: TuneSpace | None = None,
+        config: ModelConfig | None = None,
         **kwargs: t.Any,
     ) -> t.Self:
         try:
@@ -132,7 +132,7 @@ class LandslideImageClassifier(pl.LightningModule):
 class LandslideImageDataModule(pl.LightningDataModule):
     def __init__(
         self,
-        config: TuneSpace,
+        config: ModelConfig,
         variables: c.Sequence[GeomorphometricalVariable],
         train_dataset: AnyLandslideClassificationDataset | None = None,
         validation_dataset: AnyLandslideClassificationDataset | None = None,

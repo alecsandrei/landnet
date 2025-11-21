@@ -22,7 +22,7 @@ from landnet.modelling.segmentation.dataset import (
 )
 from landnet.modelling.segmentation.lightning import LandslideImageSegmenter
 from landnet.modelling.segmentation.models import get_architecture
-from landnet.typing import TuneSpace
+from landnet.typing import ModelConfig
 
 if t.TYPE_CHECKING:
     from pathlib import Path
@@ -33,7 +33,7 @@ logger = create_logger(__name__)
 @dataclass
 class Infer:
     variables: c.Sequence[GeomorphometricalVariable]
-    config: TuneSpace
+    config: ModelConfig
 
     def get_grid_for_variable(
         self, variable: GeomorphometricalVariable, mode: Mode

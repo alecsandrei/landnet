@@ -48,7 +48,7 @@ from landnet.plots import get_confusion_matrix, get_roc_curve
 from landnet.utils import save_fig
 
 if t.TYPE_CHECKING:
-    from landnet.typing import TuneSpace
+    from landnet.typing import ModelConfig
 
 logger = create_logger(__name__)
 
@@ -173,7 +173,7 @@ class InferTrainTest:
     def handle_checkpoint(
         self,
         checkpoint_path: os.PathLike | str,
-        tune_space: TuneSpace,
+        tune_space: ModelConfig,
         modes: tuple[Mode, ...] | None = None,
     ) -> None:
         if modes is None:
@@ -208,7 +208,7 @@ def save_predictions(
     infer = InferTrainTest(
         variables=variables, out_dir=checkpoint.parent / 'predictions'
     )
-    tune_space: TuneSpace = {
+    tune_space: ModelConfig = {
         'batch_size': BATCH_SIZE,
         'tile_config': TileConfig(TileSize(TILE_SIZE, TILE_SIZE), overlap=0),
     }

@@ -31,7 +31,7 @@ from landnet.modelling.classification.inference import (
     has_predictions,
     save_predictions,
 )
-from landnet.typing import TuneSpace
+from landnet.typing import ModelConfig
 
 logger = create_logger(__name__)
 
@@ -41,7 +41,7 @@ class MetricSorter(t.NamedTuple):
     mode: t.Literal['max', 'min']
 
 
-def get_tune_space() -> TuneSpace:
+def get_tune_space() -> ModelConfig:
     return {
         'learning_rate': tune.loguniform(1e-6, 1e-4),
         'batch_size': tune.choice([2, 4, 8]),

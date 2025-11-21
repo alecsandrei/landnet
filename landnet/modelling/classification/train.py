@@ -54,7 +54,7 @@ if t.TYPE_CHECKING:
     from landnet.modelling.tune import MetricSorter
     from landnet.typing import (
         ClassificationTrainTestValidation,
-        TuneSpace,
+        ModelConfig,
     )
 
 logger = create_logger(__name__)
@@ -106,7 +106,7 @@ def train_model(
 
 
 def train_func(
-    config: TuneSpace,
+    config: ModelConfig,
     variables: c.Sequence[GeomorphometricalVariable],
     model: c.Callable[[int, Mode], nn.Module],
     **kwargs,
@@ -153,7 +153,7 @@ def get_dataset_for_mode(
 
 
 def get_datasets(
-    config: TuneSpace,
+    config: ModelConfig,
     variables: c.Sequence[GeomorphometricalVariable],
     return_test: bool = True,
 ) -> ClassificationTrainTestValidation:
