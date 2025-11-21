@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import typing as t
 
+from landnet import RandomSeedContext
 from landnet.enums import GeomorphometricalVariable
 
 if t.TYPE_CHECKING:
@@ -98,7 +99,8 @@ class GeoJSON(t.TypedDict):
     features: list[Feature]
 
 
-class TuneSpace(t.TypedDict):
+class ModelConfig(t.TypedDict):
     learning_rate: t.NotRequired[float]
     batch_size: int
     tile_config: t.NotRequired[TileConfig]
+    random_seed_context: t.NotRequired[RandomSeedContext]
