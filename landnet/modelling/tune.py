@@ -3,6 +3,7 @@ from __future__ import annotations
 import collections.abc as c
 import os
 import shutil
+import tempfile
 import typing as t
 from pathlib import Path
 
@@ -272,7 +273,17 @@ def remove_checkpoints_except_best(
     )
     for checkpoint in experiment_dir.rglob('*.ckpt'):
         if checkpoint == best_checkpoint_path:
-            logger.info('will not delete', checkpoint)
+            logger.info('will not delete %s' % checkpoint)
             continue
         logger.info('deleting %s' % checkpoint)
         shutil.rmtree(checkpoint.parent, ignore_errors=False)
+
+
+def delete_ray_sys_tmp_dir(ignore_errors: bool = True) -> None:
+    tmpdir = Path(tempfile.gettempdir())
+    ray = tmpdir / 'ray'
+    if ray.exists() and ray.is_dir():
+        logger.info('Deleting Ray temp dir at %s' % ray)
+        shutil.rmtree(ray, ignore_errors=ignore_errors)
+    else:
+        logger.warning('Ray temp dir at %s does not exist' % ray)
