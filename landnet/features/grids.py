@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import collections.abc as c
-import concurrent.futures
 import typing as t
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 
 import geopandas as gpd
@@ -33,7 +31,7 @@ from landnet.features.dataset import (
 )
 from landnet.features.tiles import TileConfig, TileHandler
 from landnet.logger import create_logger
-from landnet.typing import GridTypes, Metadata
+from landnet.typing import Metadata
 
 if t.TYPE_CHECKING:
     from os import PathLike
@@ -727,28 +725,3 @@ def get_grid_for_variable(
         tile_config,
         mode=mode,
     )
-
-
-T = t.TypeVar('T', bound=GeomorphometricalVariable)
-
-
-def get_grid_types_for_variable(
-    variable: T, tile_config: TileConfig
-) -> tuple[T, GridTypes]:
-    image_folders = {}
-    for mode in Mode:
-        image_folders[mode] = get_grid_for_variable(variable, tile_config, mode)
-    return (variable, t.cast(GridTypes, image_folders))
-
-
-def get_grid_types(
-    tile_config: TileConfig,
-) -> dict[GeomorphometricalVariable, GridTypes]:
-    func = partial(get_grid_types_for_variable, tile_config=tile_config)
-    logger.info(
-        'Creating tiles with %r for all of the geomorphometrical variables'
-        % tile_config
-    )
-    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
-        results = executor.map(func, GeomorphometricalVariable)
-    return {variable: image_folders for variable, image_folders in results}
