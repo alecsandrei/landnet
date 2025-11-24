@@ -222,7 +222,7 @@ def get_tuner(
 
 
 def get_best_result_from_experiment(
-    experiment_dir: Path, sorter: MetricSorter
+    experiment_dir: Path, sorter: MetricSorter, scope: str = 'all'
 ) -> Result:
     analysis = ExperimentAnalysis(
         experiment_dir, default_metric=sorter.metric, default_mode=sorter.mode
