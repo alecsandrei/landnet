@@ -151,7 +151,7 @@ class TerrainAnalysis:
             kernel=0,
             type=0,
             epsilon=0,
-            scale=10,
+            scale=2,
             method=1,
             dw_weighting=3,
             dw_idw_power=2,
