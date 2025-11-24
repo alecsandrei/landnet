@@ -229,7 +229,7 @@ def get_best_result_from_experiment(
     )
     result_grid = ResultGrid(analysis)
     return result_grid.get_best_result(
-        metric=sorter.metric, mode=sorter.mode, scope='all'
+        metric=sorter.metric, mode=sorter.mode, scope=scope
     )
 
 
