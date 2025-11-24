@@ -12,7 +12,6 @@ if t.TYPE_CHECKING:
     from torch.utils.data import Subset
 
     from landnet.enums import Mode
-    from landnet.features.grids import Grid
     from landnet.features.tiles import TileConfig
     from landnet.modelling.classification.dataset import (
         ConcatLandslideImageClassification,
@@ -57,11 +56,6 @@ type AnyLandslideImages = (
 type CachedImages[T: AnyLandslideImages] = c.MutableMapping[
     GeomorphometricalVariable, c.MutableMapping[Mode, T]
 ]
-
-
-class GridTypes(t.TypedDict):
-    train: Grid
-    test: Grid
 
 
 class TileProperties(t.TypedDict):
