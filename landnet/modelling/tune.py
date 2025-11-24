@@ -255,14 +255,7 @@ def remove_checkpoints_except_best(
     experiment_dir: Path, sorter: MetricSorter, scope: str = 'all'
 ):
     """Removes all checkpoints other than the best one for all experiments."""
-    experiment = ExperimentAnalysis(
-        experiment_dir,
-        default_metric=sorter.metric,
-        default_mode=sorter.mode,
-    )
-    best_result = ResultGrid(experiment).get_best_result(
-        metric=sorter.metric, mode=sorter.mode, scope=scope
-    )
+    best_result = get_best_result_from_experiment(experiment_dir, sorter, scope)
     best_checkpoint_path = (
         Path(
             best_result.get_best_checkpoint(
